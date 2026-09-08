@@ -1,0 +1,22 @@
+.testmanager-trash-zone {
+    background-color: #f8d7da !important;
+    border: 2px dashed #dc3545 !important;
+    border-radius: 6px;
+    padding: 10px;
+    margin-top: 10px;
+}
+.testmanager-item {
+    background: #ffffff;
+    border: 1px solid #ced4da;
+    padding: 8px 12px;
+    margin-bottom: 5px;
+    border-radius: 4px;
+    cursor: grab;
+}
+.testmanager-course-card {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    background: #fdfdfd;
+}
