@@ -93,7 +93,7 @@ echo $OUTPUT->header();
             </form>
         </div>
         <div class="col-md-3 text-right">
-            <button class="btn btn-light bg-white border rounded-pill px-4 shadow-sm text-dark font-weight-bold" type="button" data-toggle="collapse" data-target="#collapseGlobalCat">
+            <button class="btn btn-light bg-white border rounded-pill px-4 shadow-sm text-dark font-weight-bold" type="button" data-toggle="modal" data-target="#modalNuevaCategoria">
                 <i class="fa fa-folder-open text-primary mr-1"></i> Nueva Categoría
             </button>
         </div>
@@ -196,4 +196,28 @@ echo $OUTPUT->header();
     ?>
 </div>
 
+<!-- Modal para Nueva Categoría -->
+<div class="modal fade" id="modalNuevaCategoria" tabindex="-1" role="dialog" aria-labelledby="modalNuevaCategoriaLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg rounded-lg">
+            <div class="modal-header border-bottom-0 pb-0">
+                <div class="d-flex align-items-center">
+                    <div class="d-flex align-items-center justify-content-center bg-light rounded p-2 mr-3 text-info" style="width: 40px; height: 40px;">
+                        <i class="fa fa-folder-plus fa-lg"></i>
+                    </div>
+                    <h5 class="modal-title font-weight-bold text-dark" id="modalNuevaCategoriaLabel">Nueva Categoría</h5>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body pt-3">
+                <?php 
+                // Renderizar el formulario dentro del modal
+                $catform->display(); 
+                ?>
+            </div>
+        </div>
+    </div>
+</div>
 <?php echo $OUTPUT->footer(); ?>

@@ -1,18 +1,34 @@
 <?php
 namespace local_testmanager\form;
+
 defined('MOODLE_INTERNAL') || die();
+
 require_once($CFG->libdir . '/formslib.php');
 
 class category_form extends \moodleform {
     protected function definition() {
+        global $DB;
         $mform = $this->_form;
-        $mform->addElement('hidden', 'courseid');
+
+        // Obtener la lista de cursos para la selección del padre
+        $courses = $DB->get_records_sql_menu("SELECT id, name FROM {local_testmanager_courses}");
+        $courseoptions = ['' => 'Seleccione un curso padre...'] + ($courses ? $courses : []);
+
+        // Campo de selección de Curso Padre
+        $mform->addElement('select', 'courseid', 'Curso', $courseoptions);
+        $mform->addRule('courseid', 'Debe seleccionar un curso', 'required', null, 'client');
         $mform->setType('courseid', PARAM_INT);
 
-        $mform->addElement('text', 'name', 'Nombre de la Categoría', ['size' => '50']);
-        $mform->setType('name', PARAM_TEXT);
+        // // Campo de Nombre de la Categoría
+        // $mform->addElement('text', 'name', 'Nombre', ['placeholder' => 'Ej. Unidad 4: Procedimientos de Custodia', 'class' => 'form-control']);
+        // $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');
+        // $mform->setType('name', PARAM_TEXT);
+// Campo Nombre con ancho controlado (ej. w-75)
+        $mform->addElement('text', 'name', 'Nombre');
         $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');
-        
-        $this->add_action_buttons(true, 'Crear Categoría');
+        $mform->setType('name', PARAM_TEXT);
+
+        // Botones de acción ocultos o manejados por la plantilla visual del modal
+        $this->add_action_buttons(true, 'Guardar');
     }
 }
