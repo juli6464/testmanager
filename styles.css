@@ -1,22 +1,81 @@
-.testmanager-trash-zone {
-    background-color: #f8d7da !important;
-    border: 2px dashed #dc3545 !important;
-    border-radius: 6px;
-    padding: 10px;
-    margin-top: 10px;
+body {
+    background-color: #f7f9fc;
+    font-size: 14px;
 }
+
+.testmanager-header-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1a202c;
+}
+
+.testmanager-course-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+
+/* Control estricto de iconos y títulos de carpetas */
+.testmanager-course-card .fa-folder {
+    font-size: 1.25rem !important;
+}
+
+.testmanager-course-card h5 {
+    font-size: 1rem !important;
+    font-weight: 600;
+}
+
+.testmanager-course-card small {
+    font-size: 85%;
+}
+
+/* Elementos de test en filas compactas */
 .testmanager-item {
     background: #ffffff;
-    border: 1px solid #ced4da;
-    padding: 8px 12px;
-    margin-bottom: 5px;
-    border-radius: 4px;
-    cursor: grab;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
-.testmanager-course-card {
-    border: 1px solid #dee2e6;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-    background: #fdfdfd;
+
+.testmanager-item .fa-file-alt {
+    font-size: 1rem !important;
+}
+
+.testmanager-item .fa-grip-vertical {
+    font-size: 0.85rem !important;
+}
+
+/* Badges y etiquetas estandarizadas */
+.badge-tests-count {
+    background-color: #edf2f7;
+    color: #4a5568;
+    font-weight: 500;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 10px;
+}
+
+.badge-questions {
+    background-color: #e1effe;
+    color: #1e429f;
+    font-weight: 500;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.testmanager-trash-zone {
+    background-color: #f8fafc;
+    border: 1px dashed #cbd5e0;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #4a5568;
+    font-size: 13px;
 }
