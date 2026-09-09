@@ -279,7 +279,11 @@ echo $OUTPUT->header();
             echo '<i class="fa fa-folder-open text-warning mr-2"></i> ' . format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' . $cat_tests_count . ' tests</span>';
             echo '</div>';
             
-            echo '<a href="#" class="text-muted btn-abrir-modal-categoria" data-toggle="modal" data-target="#modalEliminarCategoria" data-catname="' . s($cat->name) . '" data-testcount="' . $cat_tests_count . '" data-questioncount="' . $cat_questions_count . '" data-deleteurl="' . $deletecaturl->out(false) . '" title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
+            echo '<a href="#" class="text-muted btn-abrir-modal-categoria" data-toggle="modal" data-target="#modalEliminarCategoria" ' .
+            'data-catname="' . s($cat->name) . '" ' .
+            'data-testcount="' . $cat_tests_count . '" ' .
+            'data-questioncount="' . $cat_questions_count . '" ' .
+            'data-deleteurl="' . $deletecaturl->out(false) . '" title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
             echo '</div>';
 
             $tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $cat->id]);
@@ -473,7 +477,7 @@ echo $OUTPUT->header();
                 </p>
                 <div class="alert border border-danger bg-white text-danger rounded p-3 mb-4 small">
                     <i class="fa fa-exclamation-triangle mr-1"></i> 
-                    Atención: Todos los elementos asociados a esta categoría serán eliminados definitivamente.
+                    Atención: Esta categoría contiene <strong id="modal-categoria-tests" class="pl-1 pr-2">0 tests</strong> y <strong id="modal-categoria-preguntas" class="text-danger pl-1">0 preguntas</strong>. Todos los elementos asociados serán eliminados definitivamente.
                 </div>
                 <div class="d-flex justify-content-end">
                     <button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" data-dismiss="modal">Cancelar</button>
@@ -539,36 +543,51 @@ echo $OUTPUT->header();
 require(['jquery'], function($) {
     $(document).ready(function() {
         // Pasar ID de categoría al abrir el modal de CSV
-        $('.btn-abrir-importar').on('click', function() {
-            var categoryid = $(this).data('categoryid');
+        $(document).on('click', '.btn-abrir-importar', function() {
+            var categoryid = $(this).attr('data-categoryid');
             $('#modalImportarTest input[name="categoryid"]').val(categoryid);
         });
+        
         // Pasar ID de categoría al abrir el modal de banco
-        $('.btn-abrir-banco').on('click', function() {
-            var categoryid = $(this).data('categoryid');
+        $(document).on('click', '.btn-abrir-banco', function() {
+            var categoryid = $(this).attr('data-categoryid');
             $('#modalImportarBanco input[name="categoryid"]').val(categoryid);
         });
 
-        // Inyectar datos al modal de eliminar curso
-        $('.btn-abrir-modal-curso').on('click', function() {
-            var coursename = $(this).data('coursename');
-            var testcount = $(this).data('testcount');
-            var questioncount = $(this).data('questioncount');
-            var deleteurl = $(this).data('deleteurl');
+        // Inyectar datos al hacer clic en el botón de eliminar curso
+        $(document).on('click', '.btn-abrir-modal-curso', function() {
+            var coursename = $(this).attr('data-coursename');
+            var testcount = $(this).attr('data-testcount');
+            var questioncount = $(this).attr('data-questioncount');
+            var deleteurl = $(this).attr('data-deleteurl');
 
             $('#modal-curso-nombre').text('"' + coursename + '"');
             $('#modal-curso-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
             $('#modal-curso-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
             
-            // Asigna formalmente la URL de eliminación al botón de confirmación del modal
             $('#btn-confirmar-eliminar-curso').attr('href', deleteurl);
         });
 
-        // Inyectar datos al modal de papelera del curso
-        $('.btn-abrir-papelera').on('click', function() {
-            var coursename = $(this).data('coursename');
-            var emptyurl = $(this).data('emptyurl');
-            var tests = $(this).data('tests');
+        // Inyectar datos al hacer clic en el botón de eliminar categoría
+        $(document).on('click', '.btn-abrir-modal-categoria', function() {
+            var catname = $(this).attr('data-catname');
+            var testcount = $(this).attr('data-testcount');
+            var questioncount = $(this).attr('data-questioncount');
+            var deleteurl = $(this).attr('data-deleteurl');
+
+            $('#modal-categoria-nombre').text('"' + catname + '"');
+            $('#modal-categoria-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
+            $('#modal-categoria-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
+            
+            $('#btn-confirmar-eliminar-categoria').attr('href', deleteurl);
+        });
+
+        // Inyectar datos al abrir el modal de papelera del curso
+        $(document).on('click', '.btn-abrir-papelera', function() {
+            var coursename = $(this).attr('data-coursename');
+            var emptyurl = $(this).attr('data-emptyurl');
+            var testsRaw = $(this).attr('data-tests');
+            var tests = testsRaw ? JSON.parse(testsRaw) : [];
 
             $('#modalPapeleraCursoLabel').text(coursename);
             
@@ -586,10 +605,9 @@ require(['jquery'], function($) {
                 });
                 html += '</ul>';
             }
-            $('#modal-papelera-contenido').html(html);
+            $('#modal-trash-tests-container').html(html);
         });
     });
 });
 </script>
-
 <?php echo $OUTPUT->footer(); ?>
