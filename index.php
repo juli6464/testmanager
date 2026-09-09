@@ -26,13 +26,12 @@ $PAGE->set_pagelayout('admin');
 $PAGE->set_title('Banco de Preguntas');
 $PAGE->requires->css('/local/testmanager/styles.css');
 
-// $action = optional_param('action', '', PARAM_ALPHA);
-// $testid = optional_param('testid', 0, PARAM_INT);
-// $search = optional_param('search', '', PARAM_TEXT);
+
 $action = optional_param('action', '', PARAM_ALPHA);
 $testid = optional_param('testid', 0, PARAM_INT);
 $courseid = optional_param('courseid', 0, PARAM_INT); // NUEVO
 $search = optional_param('search', '', PARAM_TEXT);
+$filtercourse = optional_param('filtercourse', 0, PARAM_INT);
 
 // Lógica para restaurar un test individual desde la papelera
 if ($action === 'restoretest' && $testid && confirm_sesskey()) {
@@ -110,10 +109,21 @@ echo $OUTPUT->header();
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="testmanager-header-title">Banco de <span class="text-primary pl-1 pr-1">Preguntas</span></h2>
         <div class="d-flex align-items-center">
-            <div class="bg-white border rounded-pill px-3 py-1 shadow-sm mr-3 text-muted small d-flex align-items-center">
-                <i class="fa fa-filter text-info mr-2"></i> FILTRO CURSOS: 
-                <span class="text-dark font-weight-bold ml-1">Derecho Penal y Procesal Policial</span>
-            </div>
+            <form method="get" action="" class="mb-0 mr-3">
+                <div class="bg-white border rounded-pill px-3 py-1 shadow-sm text-muted small d-flex align-items-center">
+                    <i class="fa fa-filter text-info mr-2"></i> FILTRO CURSOS: 
+                    <select name="filtercourse" class="border-0 bg-transparent text-dark font-weight-bold ml-1 shadow-none" style="outline: none; cursor: pointer;" onchange="this.form.submit()">
+                        <option value="0">Todos los cursos</option>
+                        <?php
+                        $allcourses = $DB->get_records('local_testmanager_courses');
+                        foreach ($allcourses as $c) {
+                            $selected = ($filtercourse == $c->id) ? 'selected' : '';
+                            echo '<option value="' . $c->id . '" ' . $selected . '>' . format_string($c->name) . '</option>';
+                        }
+                        ?>
+                    </select>
+                </div>
+            </form>
             <button class="btn btn-success rounded-pill px-4 text-white font-weight-bold" type="button" data-toggle="modal" data-target="#modalCrearCurso">
                 <i class="fa fa-plus mr-1"></i> Crear Curso
             </button>
@@ -141,7 +151,11 @@ echo $OUTPUT->header();
 
     <!-- Listado de Cursos y Categorías -->
     <?php
-    $courses = $DB->get_records('local_testmanager_courses');
+    if ($filtercourse > 0) {
+        $courses = $DB->get_records('local_testmanager_courses', ['id' => $filtercourse]);
+    } else {
+        $courses = $DB->get_records('local_testmanager_courses');
+    }
     foreach ($courses as $course) {
         $categories = $DB->get_records_sql("SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0", [$course->id]);
         $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $course->id, 'is_trash' => 1]);
