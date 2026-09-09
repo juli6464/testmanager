@@ -99,9 +99,48 @@ if ($cdata = $catform->get_data()) {
 
 $testform = new \local_testmanager\form\test_form();
 if ($tdata = $testform->get_data()) {
-    $qcount = (!empty($tdata->bank_question_id)) ? 1 : (!empty($tdata->csvfile) ? 5 : 0);
-    $DB->insert_record('local_testmanager_tests', ['categoryid' => $tdata->categoryid, 'name' => $tdata->name, 'question_count' => $qcount, 'timecreated' => time()]);
-    redirect($PAGE->url, 'Test guardado correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+    $categoryid = $tdata->categoryid;
+    $testname = $tdata->name;
+    
+    $question_count = 0;
+    
+    // Procesar el archivo CSV subido a través del filepicker de Moodle
+    $draftitemid = $tdata->csvfile;
+    global $USER;
+    $context = context_system::instance(); // O el contexto adecuado de tu curso/sistema
+    
+    $fs = get_file_storage();
+    $files = $fs->get_area_files($USER->id, 'user', 'draft', $draftitemid, 'id DESC', false);
+    
+    $csvcontent = '';
+    foreach ($files as $file) {
+        if (!$file->is_directory()) {
+            $csvcontent = $file->get_content();
+            break;
+        }
+    }
+
+    if (!empty($csvcontent)) {
+        // Convertir el contenido del CSV en líneas
+        $lines = explode(PHP_EOL, $csvcontent);
+        // Omitir cabecera si la tiene y contar registros válidos
+        foreach ($lines as $line) {
+            if (trim($line) !== '') {
+                $question_count++;
+            }
+        }
+        // Si tu CSV tiene cabecera, resta 1: $question_count = max(0, $question_count - 1);
+    }
+
+    // Insertar el test con el conteo real de preguntas extraído del CSV
+    $DB->insert_record('local_testmanager_tests', [
+        'categoryid' => $categoryid,
+        'name' => $testname,
+        'question_count' => $question_count,
+        'timecreated' => time()
+    ]);
+
+    redirect($PAGE->url, 'Test e importación de CSV procesados correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 echo $OUTPUT->header();
@@ -208,9 +247,17 @@ echo $OUTPUT->header();
                  '<i class="fa fa-trash mr-1"></i> Papelera del Curso</button>';
         }
 
-        $deletecourseurl = new moodle_url('/local/testmanager/index.php', ['action' => 'deletecourse', 'courseid' => $course->id, 'sesskey' => sesskey()]);
-        echo '<a href="#" class="text-muted btn-abrir-modal-curso" data-toggle="modal" data-target="#modalEliminarCurso" data-coursename="' . s($course->name) . '" data-testcount="' . $total_tests . '" data-questioncount="' . $total_questions . '" data-deleteurl="' . $deletecourseurl->out(false) . '"><i class="fa fa-times"></i></a>';
-        
+        $deletecourseurl = new moodle_url('/local/testmanager/index.php', [
+            'action' => 'deletecourse', 
+            'courseid' => $course->id, 
+            'sesskey' => sesskey()
+        ]);
+
+        echo '<a href="#" class="text-muted btn-abrir-modal-curso" data-toggle="modal" data-target="#modalEliminarCurso" ' .
+            'data-coursename="' . s($course->name) . '" ' .
+            'data-testcount="' . $total_tests . '" ' .
+            'data-questioncount="' . $total_questions . '" ' .
+            'data-deleteurl="' . $deletecourseurl->out(false) . '"><i class="fa fa-times"></i></a>';
         echo '</div>';
         echo '</div>';
 
@@ -405,7 +452,37 @@ echo $OUTPUT->header();
         </div>
     </div>
 </div>
-
+<!-- Modal para Eliminar Categoría -->
+<div class="modal fade" id="modalEliminarCategoria" tabindex="-1" role="dialog" aria-labelledby="modalEliminarCategoriaLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg rounded-lg">
+            <div class="modal-header border-bottom-0 pb-0 pt-4 px-4" style="background-color: #fdf2f2;">
+                <div class="d-flex align-items-center">
+                    <div class="d-flex align-items-center justify-content-center rounded-circle p-2 mr-3 text-danger" style="width: 40px; height: 40px; background-color: #fde8e8;">
+                        <i class="fa fa-exclamation-triangle fa-lg"></i>
+                    </div>
+                    <h5 class="modal-title font-weight-bold text-danger" id="modalEliminarCategoriaLabel">Eliminar Categoría</h5>
+                </div>
+                <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body px-4 py-3" style="background-color: #fdf2f2;">
+                <p class="text-dark mb-3" style="font-size: 0.95rem;">
+                    ¿Está seguro de que desea eliminar la categoría <strong id="modal-categoria-nombre" class="text-danger"></strong>?
+                </p>
+                <div class="alert border border-danger bg-white text-danger rounded p-3 mb-4 small">
+                    <i class="fa fa-exclamation-triangle mr-1"></i> 
+                    Atención: Esta categoría contiene <strong id="modal-categoria-tests" class="pl-1 pr-2">0 tests</strong> y <strong id="modal-categoria-preguntas" class="text-danger pl-1">0 preguntas</strong>. Todos los elementos asociados serán eliminados definitivamente.
+                </div>
+                <div class="d-flex justify-content-end">
+                    <button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" data-dismiss="modal">Cancelar</button>
+                    <a href="#" id="btn-confirmar-eliminar-categoria" class="btn btn-danger rounded-pill px-4 text-white font-weight-bold" style="background-color: #e53e3e; border-color: #e53e3e;">Eliminar</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 <!-- Modal para Papelera del Curso -->
 <div class="modal fade" id="modalPapeleraCurso" tabindex="-1" role="dialog" aria-labelledby="modalPapeleraCursoLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
@@ -444,7 +521,6 @@ require(['jquery'], function($) {
             var categoryid = $(this).data('categoryid');
             $('#modalImportarTest input[name="categoryid"]').val(categoryid);
         });
-
         // Pasar ID de categoría al abrir el modal de banco
         $('.btn-abrir-banco').on('click', function() {
             var categoryid = $(this).data('categoryid');
@@ -461,6 +537,8 @@ require(['jquery'], function($) {
             $('#modal-curso-nombre').text('"' + coursename + '"');
             $('#modal-curso-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
             $('#modal-curso-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
+            
+            // Asigna formalmente la URL de eliminación al botón de confirmación del modal
             $('#btn-confirmar-eliminar-curso').attr('href', deleteurl);
         });
 
