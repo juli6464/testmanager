@@ -473,7 +473,7 @@ echo $OUTPUT->header();
                 </p>
                 <div class="alert border border-danger bg-white text-danger rounded p-3 mb-4 small">
                     <i class="fa fa-exclamation-triangle mr-1"></i> 
-                    Atención: Esta categoría contiene <strong id="modal-categoria-tests" class="pl-1 pr-2">0 tests</strong> y <strong id="modal-categoria-preguntas" class="text-danger pl-1">0 preguntas</strong>. Todos los elementos asociados serán eliminados definitivamente.
+                    Atención: Todos los elementos asociados a esta categoría serán eliminados definitivamente.
                 </div>
                 <div class="d-flex justify-content-end">
                     <button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" data-dismiss="modal">Cancelar</button>
@@ -487,6 +487,8 @@ echo $OUTPUT->header();
 <div class="modal fade" id="modalPapeleraCurso" tabindex="-1" role="dialog" aria-labelledby="modalPapeleraCursoLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
         <div class="modal-content border-0 shadow-lg rounded-lg overflow-hidden">
+            
+            <!-- Cabecera Verde Clara del Modal -->
             <div class="modal-header border-bottom px-4 pt-4 pb-3" style="background-color: #f4fbf7;">
                 <div class="d-flex align-items-center w-100">
                     <div class="d-flex align-items-center justify-content-center rounded p-2 mr-3 text-success" style="width: 42px; height: 42px; background-color: #e3f5ec;">
@@ -494,20 +496,40 @@ echo $OUTPUT->header();
                     </div>
                     <div>
                         <div class="d-flex align-items-center mb-1">
-                            <span class="text-uppercase text-success font-weight-bold mr-2" style="font-size: 11px;">Papelera del Curso</span>
+                            <span class="text-uppercase text-success font-weight-bold mr-2" style="font-size: 11px; letter-spacing: 0.5px;">Papelera del Curso</span>
+                            <span class="badge badge-success px-2 py-1" style="font-size: 10px; background-color: #d1e7dd; color: #0f5132;" id="modal-badge-curso">DPP-2026</span>
                         </div>
-                        <h5 class="modal-title font-weight-bold text-dark mb-0" id="modalPapeleraCursoLabel">Papelera</h5>
+                        <h5 class="modal-title font-weight-bold text-dark mb-0" id="modalPapeleraCursoLabel" style="font-size: 1.1rem;">Nombre del Curso</h5>
                     </div>
                 </div>
                 <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">
                     <span aria-hidden="true">&times;</span>
                 </button>
             </div>
-            <div class="modal-body px-4 py-3">
-                <div id="modal-papelera-contenido">
-                    <!-- Dinámico vía JS -->
+
+            <!-- Cuerpo del Modal -->
+            <div class="modal-body px-4 py-3 bg-white">
+                <!-- Alerta de conteo y botón Vaciar Papelera -->
+                <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+                    <small class="text-muted font-weight-bold" id="modal-trash-count">
+                        <i class="fa fa-exclamation-circle text-warning mr-1"></i> 0 tests reciclados en esta papelera
+                    </small>
+                    <a href="#" id="btn-vaciar-papelera" class="text-danger font-weight-bold small text-decoration-none">
+                        Vaciar Papelera
+                    </a>
+                </div>
+
+                <!-- Contenedor dinámico de la lista de tests eliminados -->
+                <div id="modal-trash-tests-container" style="max-height: 350px; overflow-y: auto; padding-right: 4px;">
+                    <!-- Los tests se inyectarán aquí mediante JS -->
                 </div>
             </div>
+
+            <!-- Pie del Modal -->
+            <div class="modal-footer border-top bg-light px-4 py-3">
+                <button type="button" class="btn btn-light border rounded-pill px-4 text-dark font-weight-bold shadow-sm" data-dismiss="modal">Cerrar Papelera</button>
+            </div>
+
         </div>
     </div>
 </div>
