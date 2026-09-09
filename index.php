@@ -99,19 +99,24 @@ if ($cdata = $catform->get_data()) {
 
 $testform = new \local_testmanager\form\test_form();
 if ($tdata = $testform->get_data()) {
-    $categoryid = $tdata->categoryid;
+    $categoryid = isset($tdata->categoryid) ? intval($tdata->categoryid) : 0;
+    
+    // Si por alguna razón llegó en 0, lo rescatamos de la primera categoría activa del primer curso disponible
+    if ($categoryid <= 0) {
+        $fallbackcat = $DB->get_record('local_testmanager_categories', ['is_trash' => 0], '*', IGNORE_MULTIPLE);
+        $categoryid = $fallbackcat ? $fallbackcat->id : 0;
+    }
     $testname = $tdata->name;
-    
+
     $question_count = 0;
-    
-    // Procesar el archivo CSV subido a través del filepicker de Moodle
+
+    // Obtener el ID del borrador del archivo subido por el filepicker
     $draftitemid = $tdata->csvfile;
     global $USER;
-    $context = context_system::instance(); // O el contexto adecuado de tu curso/sistema
-    
+
     $fs = get_file_storage();
     $files = $fs->get_area_files($USER->id, 'user', 'draft', $draftitemid, 'id DESC', false);
-    
+
     $csvcontent = '';
     foreach ($files as $file) {
         if (!$file->is_directory()) {
@@ -121,28 +126,42 @@ if ($tdata = $testform->get_data()) {
     }
 
     if (!empty($csvcontent)) {
-        // Convertir el contenido del CSV en líneas
-        $lines = explode(PHP_EOL, $csvcontent);
-        // Omitir cabecera si la tiene y contar registros válidos
+        // Limpiar saltos de línea y separar por filas
+        $lines = preg_split("/\r\n|\n|\r/", $csvcontent);
+        $is_header = true;
+
         foreach ($lines as $line) {
-            if (trim($line) !== '') {
-                $question_count++;
+            if (trim($line) === '') {
+                continue;
             }
+
+            // Ignorar la primera fila si es la cabecera del CSV
+            if ($is_header) {
+                $is_header = false;
+                continue;
+            }
+
+            $question_count++;
         }
-        // Si tu CSV tiene cabecera, resta 1: $question_count = max(0, $question_count - 1);
     }
 
-    // Insertar el test con el conteo real de preguntas extraído del CSV
-    $DB->insert_record('local_testmanager_tests', [
+    // Insertar el test una sola vez con el conteo real de preguntas extraído del CSV
+    $newtestid = $DB->insert_record('local_testmanager_tests', [
         'categoryid' => $categoryid,
         'name' => $testname,
         'question_count' => $question_count,
         'timecreated' => time()
     ]);
 
-    redirect($PAGE->url, 'Test e importación de CSV procesados correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
-}
+    // Obtener el curso al que pertenece la categoría para mantener el filtro activo al recargar
+    $catrecord = $DB->get_record('local_testmanager_categories', ['id' => $categoryid]);
+    $redirecturl = new moodle_url('/local/testmanager/index.php');
+    if ($catrecord) {
+        $redirecturl->param('filtercourse', $catrecord->courseid);
+    }
 
+    redirect($redirecturl, 'Test e importación de CSV procesados correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+}
 echo $OUTPUT->header();
 ?>
 
@@ -153,7 +172,7 @@ echo $OUTPUT->header();
         <div class="d-flex align-items-center">
             <form method="get" action="" class="mb-0 mr-3">
                 <div class="bg-white border rounded-pill px-3 py-1 shadow-sm text-muted small d-flex align-items-center">
-                    <i class="fa fa-filter text-info mr-2"></i> FILTRO CURSOS: 
+                    <i class="fa fa-filter text-info mr-2"></i> FILTRO CURSOS:
                     <select name="filtercourse" class="border-0 bg-transparent text-dark font-weight-bold ml-1 shadow-none" style="outline: none; cursor: pointer;" onchange="this.form.submit()">
                         <option value="0">Todos los cursos</option>
                         <?php
@@ -198,19 +217,19 @@ echo $OUTPUT->header();
     } else {
         $courses = $DB->get_records('local_testmanager_courses');
     }
-    
+
     foreach ($courses as $course) {
         $categories = $DB->get_records_sql("SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0", [$course->id]);
         $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $course->id, 'is_trash' => 1]);
-        
+
         $total_questions = 0;
-        foreach($categories as $cat) {
+        foreach ($categories as $cat) {
             $total_questions += $DB->get_field_sql("SELECT SUM(question_count) FROM {local_testmanager_tests} WHERE categoryid = ?", [$cat->id]) ?: 0;
         }
         $total_tests = $DB->count_records_sql("SELECT COUNT(t.id) FROM {local_testmanager_tests} t JOIN {local_testmanager_categories} c ON t.categoryid = c.id WHERE c.courseid = ? AND c.is_trash = 0", [$course->id]);
 
         echo '<div class="testmanager-course-card mb-4 p-3 bg-white border rounded shadow-sm">';
-        
+
         // Cabecera Principal del Curso
         echo '<div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">';
         echo '<div class="d-flex align-items-center">';
@@ -221,11 +240,11 @@ echo $OUTPUT->header();
         echo '<h5 class="mb-0 font-weight-bold text-dark" style="font-size: 1rem !important; text-transform: none !important;">' . format_string($course->name) . ' <span class="badge badge-secondary ml-2">' . $total_tests . ' tests</span></h5>';
         echo '<small class="text-muted">Total: <strong>' . $total_questions . ' preguntas</strong></small>';
         echo '</div></div>';
-        
+
         echo '<div class="d-flex align-items-center">';
         if ($trashcat) {
             $trashed_tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $trashcat->id]);
-            
+
             $tests_data = [];
             foreach ($trashed_tests as $tt) {
                 $restoreurl = new moodle_url('/local/testmanager/index.php', ['action' => 'restoretest', 'testid' => $tt->id, 'sesskey' => sesskey()]);
@@ -240,16 +259,16 @@ echo $OUTPUT->header();
             $emptytrashurl = new moodle_url('/local/testmanager/index.php', ['action' => 'emptytrash', 'courseid' => $course->id, 'sesskey' => sesskey()]);
 
             echo '<button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 mr-3 btn-abrir-papelera" style="text-transform: none; font-size: 12px;" ' .
-                 'data-toggle="modal" data-target="#modalPapeleraCurso" ' .
-                 'data-coursename="' . s($course->name) . '" ' .
-                 'data-emptyurl="' . $emptytrashurl . '" ' .
-                 'data-tests=\'' . json_encode($tests_data) . '\'>' .
-                 '<i class="fa fa-trash mr-1"></i> Papelera del Curso</button>';
+                'data-toggle="modal" data-target="#modalPapeleraCurso" ' .
+                'data-coursename="' . s($course->name) . '" ' .
+                'data-emptyurl="' . $emptytrashurl . '" ' .
+                'data-tests=\'' . json_encode($tests_data) . '\'>' .
+                '<i class="fa fa-trash mr-1"></i> Papelera del Curso</button>';
         }
 
         $deletecourseurl = new moodle_url('/local/testmanager/index.php', [
-            'action' => 'deletecourse', 
-            'courseid' => $course->id, 
+            'action' => 'deletecourse',
+            'courseid' => $course->id,
             'sesskey' => sesskey()
         ]);
 
@@ -268,8 +287,8 @@ echo $OUTPUT->header();
             $cat_questions_count = $DB->get_field_sql("SELECT SUM(question_count) FROM {local_testmanager_tests} WHERE categoryid = ?", [$cat->id]) ?: 0;
 
             $deletecaturl = new moodle_url('/local/testmanager/index.php', [
-                'action' => 'deletecategory', 
-                'categoryid' => $cat->id, 
+                'action' => 'deletecategory',
+                'categoryid' => $cat->id,
                 'sesskey' => sesskey()
             ]);
 
@@ -278,12 +297,12 @@ echo $OUTPUT->header();
             echo '<div class="d-flex align-items-center text-dark font-weight-bold">';
             echo '<i class="fa fa-folder-open text-warning mr-2"></i> ' . format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' . $cat_tests_count . ' tests</span>';
             echo '</div>';
-            
+
             echo '<a href="#" class="text-muted btn-abrir-modal-categoria" data-toggle="modal" data-target="#modalEliminarCategoria" ' .
-            'data-catname="' . s($cat->name) . '" ' .
-            'data-testcount="' . $cat_tests_count . '" ' .
-            'data-questioncount="' . $cat_questions_count . '" ' .
-            'data-deleteurl="' . $deletecaturl->out(false) . '" title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
+                'data-catname="' . s($cat->name) . '" ' .
+                'data-testcount="' . $cat_tests_count . '" ' .
+                'data-questioncount="' . $cat_questions_count . '" ' .
+                'data-deleteurl="' . $deletecaturl->out(false) . '" title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
             echo '</div>';
 
             $tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $cat->id]);
@@ -310,7 +329,7 @@ echo $OUTPUT->header();
                     echo '</div>';
                 }
             }
-            echo '</div>'; 
+            echo '</div>';
         }
 
         $firstcat = reset($categories);
@@ -326,7 +345,7 @@ echo $OUTPUT->header();
         echo '</div>';
         echo '</div>';
 
-        echo '</div>'; 
+        echo '</div>';
     }
     ?>
 </div>
@@ -392,8 +411,8 @@ echo $OUTPUT->header();
             </div>
             <div class="modal-body px-4 py-3">
                 <?php
-                $mform = new \local_testmanager\form\test_form();
-                $mform->display();
+                // Se reutiliza la misma instancia validada y procesada arriba
+                $testform->display();
                 ?>
             </div>
         </div>
@@ -445,7 +464,7 @@ echo $OUTPUT->header();
                     ¿Está seguro de que desea eliminar el curso <strong id="modal-curso-nombre" class="text-danger"></strong>?
                 </p>
                 <div class="alert border border-danger bg-white text-danger rounded p-3 mb-4 small">
-                    <i class="fa fa-exclamation-triangle mr-1"></i> 
+                    <i class="fa fa-exclamation-triangle mr-1"></i>
                     Atención: Este curso contiene <strong id="modal-curso-tests" class="pl-1 pr-2">0 tests</strong> y <strong id="modal-curso-preguntas" class="text-danger pl-1">0 preguntas</strong>. Todos los elementos asociados serán removidos definitivamente.
                 </div>
                 <div class="d-flex justify-content-end">
@@ -476,7 +495,7 @@ echo $OUTPUT->header();
                     ¿Está seguro de que desea eliminar la categoría <strong id="modal-categoria-nombre" class="text-danger"></strong>?
                 </p>
                 <div class="alert border border-danger bg-white text-danger rounded p-3 mb-4 small">
-                    <i class="fa fa-exclamation-triangle mr-1"></i> 
+                    <i class="fa fa-exclamation-triangle mr-1"></i>
                     Atención: Esta categoría contiene <strong id="modal-categoria-tests" class="pl-1 pr-2">0 tests</strong> y <strong id="modal-categoria-preguntas" class="text-danger pl-1">0 preguntas</strong>. Todos los elementos asociados serán eliminados definitivamente.
                 </div>
                 <div class="d-flex justify-content-end">
@@ -491,7 +510,7 @@ echo $OUTPUT->header();
 <div class="modal fade" id="modalPapeleraCurso" tabindex="-1" role="dialog" aria-labelledby="modalPapeleraCursoLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
         <div class="modal-content border-0 shadow-lg rounded-lg overflow-hidden">
-            
+
             <!-- Cabecera Verde Clara del Modal -->
             <div class="modal-header border-bottom px-4 pt-4 pb-3" style="background-color: #f4fbf7;">
                 <div class="d-flex align-items-center w-100">
@@ -540,74 +559,78 @@ echo $OUTPUT->header();
 
 <!-- Scripts unificados de interactividad -->
 <script>
-require(['jquery'], function($) {
-    $(document).ready(function() {
+    require(['jquery', 'core/modal_factory', 'core/str'], function($, ModalFactory, Str) {
+        $(document).ready(function() {
         // Pasar ID de categoría al abrir el modal de CSV
-        $(document).on('click', '.btn-abrir-importar', function() {
+        $(document).on('click', '.btn-abrir-importar', function(e) {
             var categoryid = $(this).attr('data-categoryid');
-            $('#modalImportarTest input[name="categoryid"]').val(categoryid);
+            $('#id_categoryid').val(categoryid); // <-- Cambiado de input[name="categoryid"] a #id_categoryid
         });
-        
+
         // Pasar ID de categoría al abrir el modal de banco
-        $(document).on('click', '.btn-abrir-banco', function() {
+        $(document).on('click', '.btn-abrir-banco', function(e) {
             var categoryid = $(this).attr('data-categoryid');
-            $('#modalImportarBanco input[name="categoryid"]').val(categoryid);
+            $('#id_bank_categoryid').val(categoryid); // Asegura también el del banco si aplica
         });
 
-        // Inyectar datos al hacer clic en el botón de eliminar curso
-        $(document).on('click', '.btn-abrir-modal-curso', function() {
-            var coursename = $(this).attr('data-coursename');
-            var testcount = $(this).attr('data-testcount');
-            var questioncount = $(this).attr('data-questioncount');
-            var deleteurl = $(this).attr('data-deleteurl');
+            // Forzar apertura y datos del modal de eliminar curso de forma segura
+            $(document).on('click', '.btn-abrir-modal-curso', function(e) {
+                e.preventDefault();
+                var coursename = $(this).attr('data-coursename');
+                var testcount = $(this).attr('data-testcount');
+                var questioncount = $(this).attr('data-questioncount');
+                var deleteurl = $(this).attr('data-deleteurl');
 
-            $('#modal-curso-nombre').text('"' + coursename + '"');
-            $('#modal-curso-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
-            $('#modal-curso-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
-            
-            $('#btn-confirmar-eliminar-curso').attr('href', deleteurl);
-        });
+                $('#modal-curso-nombre').text('"' + coursename + '"');
+                $('#modal-curso-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
+                $('#modal-curso-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
+                $('#btn-confirmar-eliminar-curso').attr('href', deleteurl);
 
-        // Inyectar datos al hacer clic en el botón de eliminar categoría
-        $(document).on('click', '.btn-abrir-modal-categoria', function() {
-            var catname = $(this).attr('data-catname');
-            var testcount = $(this).attr('data-testcount');
-            var questioncount = $(this).attr('data-questioncount');
-            var deleteurl = $(this).attr('data-deleteurl');
+                $('#modalEliminarCurso').modal('show');
+            });
 
-            $('#modal-categoria-nombre').text('"' + catname + '"');
-            $('#modal-categoria-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
-            $('#modal-categoria-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
-            
-            $('#btn-confirmar-eliminar-categoria').attr('href', deleteurl);
-        });
+            // Forzar apertura y datos del modal de eliminar categoría de forma segura
+            $(document).on('click', '.btn-abrir-modal-categoria', function(e) {
+                e.preventDefault();
+                var catname = $(this).attr('data-catname');
+                var testcount = $(this).attr('data-testcount');
+                var questioncount = $(this).attr('data-questioncount');
+                var deleteurl = $(this).attr('data-deleteurl');
 
-        // Inyectar datos al abrir el modal de papelera del curso
-        $(document).on('click', '.btn-abrir-papelera', function() {
-            var coursename = $(this).attr('data-coursename');
-            var emptyurl = $(this).attr('data-emptyurl');
-            var testsRaw = $(this).attr('data-tests');
-            var tests = testsRaw ? JSON.parse(testsRaw) : [];
+                $('#modal-categoria-nombre').text('"' + catname + '"');
+                $('#modal-categoria-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
+                $('#modal-categoria-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
+                $('#btn-confirmar-eliminar-categoria').attr('href', deleteurl);
 
-            $('#modalPapeleraCursoLabel').text(coursename);
-            
-            var html = '';
-            if (tests.length === 0) {
-                html = '<p class="text-muted text-center py-3">La papelera de este curso está vacía.</p>';
-            } else {
-                html = '<div class="mb-3 text-right"><a href="' + emptyurl + '" class="btn btn-outline-danger btn-sm rounded-pill"><i class="fa fa-trash"></i> Vaciar papelera</a></div>';
-                html += '<ul class="list-group">';
-                $.each(tests, function(i, t) {
-                    html += '<li class="list-group-item d-flex justify-content-between align-items-center">';
-                    html += '<div><strong>' + t.name + '</strong><br><small class="text-muted">' + t.questions + ' preguntas - Eliminado: ' + t.date + '</small></div>';
-                    html += '<a href="' + t.restoreurl + '" class="btn btn-success btn-sm rounded-pill text-white"><i class="fa fa-undo"></i> Restaurar</a>';
-                    html += '</li>';
-                });
-                html += '</ul>';
-            }
-            $('#modal-trash-tests-container').html(html);
+                $('#modalEliminarCategoria').modal('show');
+            });
+
+            // Inyectar datos al abrir el modal de papelera del curso
+            $(document).on('click', '.btn-abrir-papelera', function(e) {
+                var coursename = $(this).attr('data-coursename');
+                var emptyurl = $(this).attr('data-emptyurl');
+                var testsRaw = $(this).attr('data-tests');
+                var tests = testsRaw ? JSON.parse(testsRaw) : [];
+
+                $('#modalPapeleraCursoLabel').text(coursename);
+
+                var html = '';
+                if (tests.length === 0) {
+                    html = '<p class="text-muted text-center py-3">La papelera de este curso está vacía.</p>';
+                } else {
+                    html = '<div class="mb-3 text-right"><a href="' + emptyurl + '" class="btn btn-outline-danger btn-sm rounded-pill"><i class="fa fa-trash"></i> Vaciar papelera</a></div>';
+                    html += '<ul class="list-group">';
+                    $.each(tests, function(i, t) {
+                        html += '<li class="list-group-item d-flex justify-content-between align-items-center">';
+                        html += '<div><strong>' + t.name + '</strong><br><small class="text-muted">' + t.questions + ' preguntas - Eliminado: ' + t.date + '</small></div>';
+                        html += '<a href="' + t.restoreurl + '" class="btn btn-success btn-sm rounded-pill text-white"><i class="fa fa-undo"></i> Restaurar</a>';
+                        html += '</li>';
+                    });
+                    html += '</ul>';
+                }
+                $('#modal-trash-tests-container').html(html);
+            });
         });
     });
-});
 </script>
 <?php echo $OUTPUT->footer(); ?>
