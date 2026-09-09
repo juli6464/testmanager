@@ -79,3 +79,128 @@ body {
     color: #4a5568;
     font-size: 13px;
 }
+
+/* Estilizar los botones generados por add_action_buttons dentro del modal de curso */
+#modalCrearCurso .modal-body .fitem_actionbuttons .fgroup {
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    margin-top: 1rem !important;
+}
+
+#modalCrearCurso .modal-body .fitem_actionbuttons .fgroup input[name="submitbutton"] {
+    background-color: #82c99e !important;
+    border-color: #82c99e !important;
+    color: #fff !important;
+    border-radius: 50rem !important;
+    padding: 0.375rem 1.5rem !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+}
+
+#modalCrearCurso .modal-body .fitem_actionbuttons .fgroup input[name="submitbutton"]:hover {
+    background-color: #6fb98b !important;
+    border-color: #6fb98b !important;
+}
+
+#modalCrearCurso .modal-body .fitem_actionbuttons .fgroup input[name="cancel"] {
+    background-color: #f1f3f5 !important;
+    border-color: #ced4da !important;
+    color: #212529 !important;
+    border-radius: 50rem !important;
+    padding: 0.375rem 1.5rem !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+}
+
+/* Contenedor del Modal de Importación */
+#modalImportarTest .modal-body .mform fieldset {
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+#modalImportarTest .modal-body .mform .fitem {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1rem;
+    border: none !important;
+}
+
+#modalImportarTest .modal-body .mform .fitem titre,
+#modalImportarTest .modal-body .mform .fitem .fitemtitle {
+    width: 100% !important;
+    text-align: left !important;
+    margin-bottom: 0.4rem;
+}
+
+#modalImportarTest .modal-body .mform .fitem titre label,
+#modalImportarTest .modal-body .mform .fitem .fitemtitle label {
+    font-weight: 600;
+    color: #4a5568;
+    font-size: 0.9rem;
+}
+
+#modalImportarTest .modal-body .mform .fitem .felement {
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+/* Transformar el filepicker nativo en una zona de arrastrar y soltar elegante */
+#modalImportarTest .modal-body .fitem_ffilepicker .filepicker {
+    border: 2px dashed #cbd5e0 !important;
+    border-radius: 0.75rem !important;
+    padding: 2rem 1rem !important;
+    background-color: #fafbfc !important;
+    text-align: center;
+}
+
+#modalImportarTest .modal-body .fitem_ffilepicker .filepicker:hover {
+    border-color: #82c99e !important;
+    background-color: #f4fbf7 !important;
+}
+
+/* Alineación de los botones de acción a la derecha */
+#modalImportarTest .modal-body .mform .fitem_actionbuttons .fgroup,
+#modalImportarTest .modal-body .mform .fitem_actionbuttons div[id^="fgroup_"] {
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    width: 100% !important;
+}
+
+#modalImportarTest .modal-body .mform .fitem_actionbuttons {
+    text-align: right !important;
+}
+
+/* Botón Importar (Submit) en tono turquesa/verde suave acorde a la imagen */
+#modalImportarTest .modal-body .fitem_actionbuttons input[name="submitbutton"] {
+    background-color: #6bc1c7 !important;
+    border-color: #6bc1c7 !important;
+    color: #fff !important;
+    border-radius: 50rem !important;
+    padding: 0.375rem 1.5rem !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+}
+
+#modalImportarTest .modal-body .fitem_actionbuttons input[name="submitbutton"]:hover {
+    background-color: #5aaeb4 !important;
+    border-color: #5aaeb4 !important;
+}
+
+/* Botón Cancelar en gris claro redondeado */
+#modalImportarTest .modal-body .fitem_actionbuttons input[name="cancel"] {
+    background-color: #f1f3f5 !important;
+    border-color: #ced4da !important;
+    color: #212529 !important;
+    border-radius: 50rem !important;
+    padding: 0.375rem 1.5rem !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+}
+
+#modalImportarTest .modal-body .fitem_actionbuttons input[name="cancel"]:hover {
+    background-color: #e2e6ea !important;
+}
+

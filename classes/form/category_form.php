@@ -19,16 +19,11 @@ class category_form extends \moodleform {
         $mform->addRule('courseid', 'Debe seleccionar un curso', 'required', null, 'client');
         $mform->setType('courseid', PARAM_INT);
 
-        // // Campo de Nombre de la Categoría
-        // $mform->addElement('text', 'name', 'Nombre', ['placeholder' => 'Ej. Unidad 4: Procedimientos de Custodia', 'class' => 'form-control']);
-        // $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');
-        // $mform->setType('name', PARAM_TEXT);
-// Campo Nombre con ancho controlado (ej. w-75)
         $mform->addElement('text', 'name', 'Nombre');
         $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');
         $mform->setType('name', PARAM_TEXT);
 
         // Botones de acción ocultos o manejados por la plantilla visual del modal
-        $this->add_action_buttons(true, 'Guardar');
+        $this->add_action_buttons(true, 'Crear');
     }
 }
