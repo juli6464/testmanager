@@ -27,7 +27,6 @@ class test_form extends \moodleform {
 
         // Texto de ayuda y enlace de descarga de ejemplo debajo del filepicker
         $helptext = '<div class="d-flex flex-column mt-2 text-right">
-            <small class="text-muted mb-1">Soporta formato UTF-8 estandarizado de Moodle / Mascop CSV</small>
             <a href="#" class="text-info font-weight-bold small">Cargar archivo CSV de ejemplo</a>
         </div>';
         $mform->addElement('html', $helptext);
