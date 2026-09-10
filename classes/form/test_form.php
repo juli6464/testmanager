@@ -9,7 +9,6 @@ class test_form extends \moodleform {
     protected function definition() {
         $mform = $this->_form;
         
-        // $mform->addElement('hidden', 'categoryid');
         global $DB;
 
         // Obtener todas las categorías activas agrupadas con su curso correspondiente
@@ -32,8 +31,6 @@ class test_form extends \moodleform {
         ]);
         $mform->setType('categoryid', PARAM_INT);
         $mform->addRule('categoryid', 'Debe seleccionar una categoría', 'required', null, 'client');
-        
-        $mform->setType('categoryid', PARAM_INT);
 
         // Nombre del Test con estilo moderno
         $mform->addElement('text', 'name', 'Nombre del Test', [
@@ -43,36 +40,22 @@ class test_form extends \moodleform {
         $mform->setType('name', PARAM_TEXT);
         $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');
 
-        // Contenedor visual superior para la zona de carga (Dropzone styling)
-        $dropzone_header = '<div class="upload-dropzone-wrapper mt-3 mb-1">
-            <label class="font-weight-bold text-dark mb-2">Upload CSV <span class="text-danger">*</span></label>
-            <div class="border rounded-lg p-4 text-center bg-light position-relative" style="border: 2px dashed #cbd5e1 !important; background-color: #fafafa !important; border-radius: 12px;">
-                <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-2" style="width: 48px; height: 48px; background-color: #e6f6f8; color: #17a2b8;">
-                    <i class="fa fa-upload fa-lg"></i>
-                </div>
-                <div class="font-weight-bold text-info mb-1" style="cursor: pointer;">
-                    Haga clic para seleccionar archivo CSV <span class="text-muted font-weight-normal">o arrastre el archivo aquí</span>
-                </div>
-                <small class="text-muted d-block">Soporta formato UTF-8 estandarizado de Moodle / Mascop CSV</small>';
-        $mform->addElement('html', $dropzone_header);
-
-        // Zona de carga de CSV (Filepicker nativo de Moodle integrado visualmente)
+        // Filepicker nativo de Moodle limpio (sin cajas HTML redundantes que rompen el diseño)
         $filepicker_options = ['accepted_types' => ['.csv'], 'maxbytes' => 0];
-        $mform->addElement('filepicker', 'csvfile', '', null, $filepicker_options);
+        $mform->addElement('filepicker', 'csvfile', 'Archivo CSV', null, $filepicker_options);
         $mform->addRule('csvfile', 'Debe seleccionar un archivo CSV', 'required', null, 'client');
+        // Ocultar el botón tradicional "Seleccione un archivo..." manteniendo activa la zona de arrastre
+        $mform->addElement('html', '<style>
+            .fp-btn-choose {
+                display: none !important;
+            }
+        </style>');
 
-        // Cierre del contenedor visual y enlace de descarga de ejemplo
-        $dropzone_footer = '</div>
-            <div class="d-flex justify-content-end mt-2">
-                <a href="#" class="text-info font-weight-bold small text-decoration-none">Cargar archivo CSV de ejemplo</a>
-            </div>
-        </div>';
-        $mform->addElement('html', $dropzone_footer);
-
-        // Botones de acción estándar estilizados para el modal
+        // Botones de acción estándar alineados limpiamente con Bootstrap
+        tabular_buttons:
         $buttonarray = [];
-        $buttonarray[] = $mform->createElement('cancel', 'cancel', 'Cancelar', ['class' => 'btn btn-light border rounded-pill px-4 text-dark font-weight-bold']);
-        $buttonarray[] = $mform->createElement('submit', 'submitbutton', 'Importar', ['class' => 'btn btn-info rounded-pill px-4 text-white font-weight-bold', 'style' => 'background-color: #5bc0de; border-color: #5bc0de;']);
+        $buttonarray[] = $mform->createElement('cancel', 'cancel', 'Cancelar');
+        $buttonarray[] = $mform->createElement('submit', 'submitbutton', 'Importar');
         
         $mform->addGroup($buttonarray, 'buttonar', '', [' '], false);
         $mform->closeHeaderBefore('buttonar');
