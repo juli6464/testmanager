@@ -295,26 +295,61 @@ if ($tdata = $testform->get_data()) {
     $sumgrades = 0.0;
 
     if (!empty($csvcontent)) {
+        // Limpiar BOM UTF-8 si existe
+        $csvcontent = preg_replace('/^\xEF\xBB\xBF/', '', $csvcontent);
         $lines = preg_split("/\r\n|\n|\r/", $csvcontent);
-        $is_header = true;
+        
+        $current_question = null;
+        $questions_data = [];
 
         foreach ($lines as $line) {
             if (trim($line) === '') continue;
-            if ($is_header) {
-                $is_header = false;
-                continue;
+            
+            // Usar str_getcsv respetando comillas y delimitador ';'
+            $data = str_getcsv($line, ';');
+            if (empty($data)) continue;
+
+            $marker = trim($data[0], " \t\n\r\0\x0B\"");
+
+            if ($marker === '*') {
+                // Si ya teníamos una pregunta en curso, la guardamos
+                if ($current_question !== null) {
+                    $questions_data[] = $current_question;
+                }
+                // Iniciar nueva pregunta
+                $current_question = [
+                    'text' => isset($data[1]) ? trim($data[1]) : '',
+                    'options' => []
+                ];
+            } else if ($marker === '' && $current_question !== null) {
+                // Es una opción de respuesta
+                if (isset($data[1]) && trim($data[1]) !== '') {
+                    $optText = trim($data[1]);
+                    // Comprobar si la columna 3 (índice 2) marca la correcta con 'x' o 'X'
+                    $is_correct = false;
+                    if (isset($data[2]) && strtolower(trim($data[2], " \t\n\r\0\x0B\"")) === 'x') {
+                        $is_correct = true;
+                    }
+                    $current_question['options'][] = [
+                        'text' => $optText,
+                        'correct' => $is_correct
+                    ];
+                }
             }
+        }
+        // Guardar la última pregunta procesada
+        if ($current_question !== null) {
+            $questions_data[] = $current_question;
+        }
 
-            $data = str_getcsv($line);
-            if (count($data) < 2) continue;
-
-            $questiontext = trim($data[0]);
-            $questionans = trim($data[1]);
+        // Iterar sobre cada pregunta estructurada y crearla en Moodle
+        foreach ($questions_data as $q_index => $q_data) {
+            if (empty($q_data['text']) || empty($q_data['options'])) continue;
 
             $question = new stdClass();
-            $question->qtype = 'shortanswer';
-            $question->name = mb_substr(strip_tags($questiontext), 0, 80) ?: 'Pregunta ' . ($question_count + 1);
-            $question->questiontext = $questiontext;
+            $question->qtype = 'multichoice'; // Configurado correctamente como opción múltiple
+            $question->name = mb_substr(strip_tags($q_data['text']), 0, 80) ?: 'Pregunta ' . ($question_count + 1);
+            $question->questiontext = $q_data['text'];
             $question->questiontextformat = FORMAT_HTML;
             $question->generalfeedback = '';
             $question->generalfeedbackformat = FORMAT_HTML;
@@ -342,19 +377,41 @@ if ($tdata = $testform->get_data()) {
             $version->questionid = $qid;
             $DB->insert_record('question_versions', $version);
 
-            // Opciones y respuestas de la pregunta
-            $answer = new stdClass();
-            $answer->question = $qid;
-            $answer->answer = $questionans;
-            $answer->fraction = 1.0;
-            $answer->feedback = '';
-            $answer->feedbackformat = FORMAT_HTML;
-            $DB->insert_record('question_answers', $answer);
+            // Insertar opciones de respuesta en {question_answers}
+            $has_correct = false;
+            foreach ($q_data['options'] as $opt) {
+                $answer = new stdClass();
+                $answer->question = $qid;
+                $answer->answer = $opt['text'];
+                $answer->fraction = $opt['correct'] ? 1.0 : 0.0;
+                if ($opt['correct']) {
+                    $has_correct = true;
+                }
+                $answer->feedback = '';
+                $answer->feedbackformat = FORMAT_HTML;
+                $DB->insert_record('question_answers', $answer);
+            }
 
-            $qtype_sa = new stdClass();
-            $qtype_sa->questionid = $qid;
-            $qtype_sa->usecase = 0;
-            $DB->insert_record('qtype_shortanswer_options', $qtype_sa);
+            // Si por alguna razón ninguna opción quedó marcada como correcta, marcar la primera por defecto
+            if (!$has_correct && !empty($q_data['options'])) {
+                $DB->set_field('question_answers', 'fraction', 1.0, ['question' => $qid], 0, 1);
+            }
+
+            // Configuración específica de selección múltiple en Moodle
+            $qtype_mc = new stdClass();
+            $qtype_mc->questionid = $qid;
+            $qtype_mc->layout = 0;
+            $qtype_mc->single = 1; // 1 = Una sola respuesta correcta
+            $qtype_mc->shuffleanswers = 1;
+            $qtype_mc->correctfeedback = '';
+            $qtype_mc->correctfeedbackformat = FORMAT_HTML;
+            $qtype_mc->partiallycorrectfeedback = '';
+            $qtype_mc->partiallycorrectfeedbackformat = FORMAT_HTML;
+            $qtype_mc->incorrectfeedback = '';
+            $qtype_mc->incorrectfeedbackformat = FORMAT_HTML;
+            $qtype_mc->answernumbering = 'abc';
+            $qtype_mc->shownumcorrect = 0;
+            $DB->insert_record('qtype_multichoice_options', $qtype_mc);
 
             // Slot en el cuestionario
             $slot = new stdClass();
