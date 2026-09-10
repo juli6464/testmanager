@@ -115,7 +115,8 @@ if ($tdata = $testform->get_data()) {
     global $USER;
 
     $fs = get_file_storage();
-    $files = $fs->get_area_files($USER->id, 'user', 'draft', $draftitemid, 'id DESC', false);
+    $usercontext = \context_user::instance($USER->id);
+    $files = $fs->get_area_files($usercontext->id, 'user', 'draft', $draftitemid, 'id DESC', false);
 
     $csvcontent = '';
     foreach ($files as $file) {
