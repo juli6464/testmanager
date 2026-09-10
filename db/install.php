@@ -10,6 +10,7 @@ function xmldb_local_testmanager_install() {
     $table1 = new xmldb_table('local_testmanager_courses');
     $table1->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
     $table1->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+    $table1->add_field('moodlecourseid', XMLDB_TYPE_INTEGER, '10', null, null, null, '0');
     $table1->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $table1->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
 
@@ -35,6 +36,7 @@ function xmldb_local_testmanager_install() {
     $table3 = new xmldb_table('local_testmanager_tests');
     $table3->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
     $table3->add_field('categoryid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table3->add_field('quizid', XMLDB_TYPE_INTEGER, '10', null, null, null, '0');
     $table3->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
     $table3->add_field('question_count', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
     $table3->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);

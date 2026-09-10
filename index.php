@@ -19,6 +19,66 @@ if (!$dbman->table_exists('local_testmanager_courses')) {
     if (function_exists('xmldb_local_testmanager_install')) {
         xmldb_local_testmanager_install();
     }
+} else {
+    // Asegurar campos nuevos en tablas existentes
+    $table_courses = new xmldb_table('local_testmanager_courses');
+    $field_mcid = new xmldb_field('moodlecourseid', XMLDB_TYPE_INTEGER, '10', null, null, null, '0');
+    if (!$dbman->field_exists($table_courses, $field_mcid)) {
+        $dbman->add_field($table_courses, $field_mcid);
+    }
+
+    $table_tests = new xmldb_table('local_testmanager_tests');
+    $field_qid = new xmldb_field('quizid', XMLDB_TYPE_INTEGER, '10', null, null, null, '0');
+    if (!$dbman->field_exists($table_tests, $field_qid)) {
+        $dbman->add_field($table_tests, $field_qid);
+    }
+}
+
+// Auto-reparación de cuestionarios huérfanos o con referencias erróneas previas
+$orphan_quizzes = $DB->get_records_sql("
+    SELECT q.id, q.name, q.course, q.sumgrades 
+    FROM {quiz} q
+    JOIN {quiz_slots} qs ON qs.quizid = q.id
+    GROUP BY q.id, q.name, q.course, q.sumgrades
+");
+foreach ($orphan_quizzes as $oq) {
+    if (!$DB->record_exists('quiz_sections', ['quizid' => $oq->id])) {
+        $DB->insert_record('quiz_sections', [
+            'quizid' => $oq->id,
+            'firstslot' => 1,
+            'heading' => '',
+            'shufflequestions' => 0
+        ]);
+    }
+    $oqcm = get_coursemodule_from_instance('quiz', $oq->id);
+    if ($oqcm) {
+        $oqmodcontext = context_module::instance($oqcm->id);
+        $oqslots = $DB->get_records('quiz_slots', ['quizid' => $oq->id]);
+        if (!empty($oqslots)) {
+            $oqslotids = array_keys($oqslots);
+            list($insql, $inparams) = $DB->get_in_or_equal($oqslotids);
+            $DB->execute("UPDATE {question_references} 
+                             SET usingcontextid = ? 
+                           WHERE itemid $insql 
+                             AND component = 'mod_quiz' 
+                             AND questionarea = 'slot' 
+                             AND usingcontextid != ?", array_merge([$oqmodcontext->id], $inparams, [$oqmodcontext->id]));
+            if (floatval($oq->sumgrades) <= 0) {
+                try {
+                    \mod_quiz\quiz_settings::create($oq->id)->get_grade_calculator()->recompute_quiz_sumgrades();
+                } catch (\Throwable $ignore) {}
+            }
+        }
+    }
+}
+
+// Auto-vincular quizid en local_testmanager_tests si estaba en 0
+$unlinked_tests = $DB->get_records('local_testmanager_tests', ['quizid' => 0]);
+foreach ($unlinked_tests as $ut) {
+    $matched_quiz = $DB->get_record('quiz', ['name' => $ut->name], '*', IGNORE_MULTIPLE);
+    if ($matched_quiz) {
+        $DB->set_field('local_testmanager_tests', 'quizid', $matched_quiz->id, ['id' => $ut->id]);
+    }
 }
 
 $PAGE->set_context(context_system::instance());
@@ -30,7 +90,7 @@ $PAGE->requires->css('/local/testmanager/styles.css');
 $action = optional_param('action', '', PARAM_ALPHA);
 $testid = optional_param('testid', 0, PARAM_INT);
 $courseid = optional_param('courseid', 0, PARAM_INT);
-$categoryid = optional_param('categoryid', 0, PARAM_INT); // Corregido: Definido correctamente
+$categoryid = optional_param('categoryid', 0, PARAM_INT);
 $search = optional_param('search', '', PARAM_TEXT);
 $filtercourse = optional_param('filtercourse', 0, PARAM_INT);
 
@@ -100,17 +160,100 @@ if ($cdata = $catform->get_data()) {
 $testform = new \local_testmanager\form\test_form();
 if ($tdata = $testform->get_data()) {
     $categoryid = isset($tdata->categoryid) ? intval($tdata->categoryid) : 0;
-    
-    // Si por alguna razón llegó en 0, lo rescatamos de la primera categoría activa del primer curso disponible
+
     if ($categoryid <= 0) {
-        $fallbackcat = $DB->get_record('local_testmanager_categories', ['is_trash' => 0], '*', IGNORE_MULTIPLE);
-        $categoryid = $fallbackcat ? $fallbackcat->id : 0;
+        redirect($PAGE->url, 'Error: No se especificó una categoría válida para guardar el test.', null, \core\output\notification::NOTIFY_ERROR);
     }
     $testname = $tdata->name;
 
-    $question_count = 0;
+    $catrecord = $DB->get_record('local_testmanager_categories', ['id' => $categoryid], '*', MUST_EXIST);
+    $tmcourseid = $catrecord->courseid;
+    $tmcourse = $DB->get_record('local_testmanager_courses', ['id' => $tmcourseid]);
 
-    // Obtener el ID del borrador del archivo subido por el filepicker
+    require_once($CFG->dirroot . '/course/lib.php');
+
+    $moodlecourseid = !empty($tmcourse->moodlecourseid) ? intval($tmcourse->moodlecourseid) : 0;
+
+    // Verificar que el curso en Moodle existe y NO es la portada del sitio (SITEID = 1)
+    if ($moodlecourseid <= 1 || !$DB->record_exists('course', ['id' => $moodlecourseid])) {
+        $coursedata = new stdClass();
+        $coursedata->fullname = $tmcourse ? $tmcourse->name : ('Gestor de Tests - Curso ' . $tmcourseid);
+        $coursedata->shortname = 'TESTMGR_' . $tmcourseid . '_' . time();
+        $coursedata->category = 1;
+        $coursedata->format = 'topics';
+
+        $newcourse = create_course($coursedata);
+        $moodlecourseid = $newcourse->id;
+
+        if ($tmcourse) {
+            $DB->set_field('local_testmanager_courses', 'moodlecourseid', $moodlecourseid, ['id' => $tmcourse->id]);
+        }
+    }
+
+    $quiz = new stdClass();
+    $quiz->course = $moodlecourseid;
+    $quiz->name = $testname;
+    $quiz->intro = 'Importado desde el gestor.';
+    $quiz->introformat = FORMAT_HTML;
+    $quiz->timeopen = 0;
+    $quiz->timeclose = 0;
+    $quiz->timemodified = time();
+    $quiz->timecreated = time();
+    $quiz->password = '';
+    $quiz->subnet = '';
+    $quiz->grade = 10.0;
+    $quiz->sumgrades = 0.0;
+    $quiz->questionsperpage = 1;
+    $quiz->navmethod = 'free';
+    $quiz->shuffleanswers = 1;
+    $quiz->preferredbehaviour = 'deferredfeedback';
+    $quiz->attempts = 0;
+    $quiz->grademethod = 1;
+    $quiz->timelimit = 0;
+    $quiz->overduehandling = 'autosubmit';
+    $quiz->graceperiod = 0;
+    $quiz->decimalpoints = 2;
+    $quiz->questiondecimalpoints = -1;
+    $quiz->reviewattempt = 65536;
+    $quiz->reviewcorrectness = 4352;
+    $quiz->reviewmarks = 4352;
+    $quiz->reviewspecificfeedback = 4352;
+    $quiz->reviewgeneralfeedback = 4352;
+    $quiz->reviewrightanswer = 4352;
+    $quiz->reviewoverallfeedback = 4352;
+    $quiz->showuserpicture = 0;
+    $quiz->showblocks = 0;
+    $quiz->completionattemptsexhausted = 0;
+    $quiz->completionpass = 0;
+    $quiz->allowofflineattempts = 0;
+    $quiz->reviewmaxmarks = 0;
+
+    $quizid = $DB->insert_record('quiz', $quiz);
+    $quiz->id = $quizid;
+
+    // Sección inicial obligatoria en mdl_quiz_sections
+    $DB->insert_record('quiz_sections', [
+        'quizid' => $quizid,
+        'firstslot' => 1,
+        'heading' => '',
+        'shufflequestions' => 0
+    ]);
+
+    $module = $DB->get_record('modules', ['name' => 'quiz'], '*', MUST_EXIST);
+
+    $cm = new stdClass();
+    $cm->course = $moodlecourseid;
+    $cm->module = $module->id;
+    $cm->instance = $quizid;
+    $cm->section = 0;
+    $cm->visible = 1;
+    $cm->visibleold = 1;
+
+    $cmid = add_course_module($cm);
+    course_add_cm_to_section($moodlecourseid, $cmid, 0);
+    rebuild_course_cache($moodlecourseid, true);
+
+    $quiz->cmid = $cmid;
     $draftitemid = $tdata->csvfile;
     global $USER;
 
@@ -126,42 +269,134 @@ if ($tdata = $testform->get_data()) {
         }
     }
 
+    require_once($CFG->dirroot . '/question/editlib.php');
+    require_once($CFG->libdir . '/questionlib.php');
+    $coursecontext = context_course::instance($moodlecourseid);
+    $defaultcat = question_get_default_category($coursecontext->id, true);
+
+    $qcat = $DB->get_record('question_categories', ['contextid' => $coursecontext->id, 'name' => $testname]);
+    if (!$qcat) {
+        $catdata = new stdClass();
+        $catdata->name = $testname;
+        $catdata->contextid = $coursecontext->id;
+        $catdata->info = 'Preguntas para ' . $testname;
+        $catdata->infoformat = FORMAT_HTML;
+        $catdata->stamp = make_unique_id_code();
+        $catdata->parent = $defaultcat ? $defaultcat->id : 0;
+        $catdata->sortorder = 999;
+        $qcatid = $DB->insert_record('question_categories', $catdata);
+    } else {
+        $qcatid = $qcat->id;
+    }
+
+    require_once($CFG->dirroot . '/mod/quiz/locallib.php');
+
+    $question_count = 0;
+    $sumgrades = 0.0;
+
     if (!empty($csvcontent)) {
-        // Limpiar saltos de línea y separar por filas
         $lines = preg_split("/\r\n|\n|\r/", $csvcontent);
         $is_header = true;
 
         foreach ($lines as $line) {
-            if (trim($line) === '') {
-                continue;
-            }
-
-            // Ignorar la primera fila si es la cabecera del CSV
+            if (trim($line) === '') continue;
             if ($is_header) {
                 $is_header = false;
                 continue;
             }
 
+            $data = str_getcsv($line);
+            if (count($data) < 2) continue;
+
+            $questiontext = trim($data[0]);
+            $questionans = trim($data[1]);
+
+            $question = new stdClass();
+            $question->qtype = 'shortanswer';
+            $question->name = mb_substr(strip_tags($questiontext), 0, 80) ?: 'Pregunta ' . ($question_count + 1);
+            $question->questiontext = $questiontext;
+            $question->questiontextformat = FORMAT_HTML;
+            $question->generalfeedback = '';
+            $question->generalfeedbackformat = FORMAT_HTML;
+            $question->defaultmark = 1.0;
+            $question->penalty = 0.3333333;
+            $question->stamp = make_unique_id_code();
+            $question->timecreated = time();
+            $question->timemodified = time();
+            $question->createdby = $USER->id;
+            $question->modifiedby = $USER->id;
+
+            $qid = $DB->insert_record('question', $question);
+
+            // Registro obligatorio en el Banco de Preguntas (Arquitectura Moodle 4.x)
+            $entry = new stdClass();
+            $entry->questioncategoryid = $qcatid;
+            $entry->idnumber = null;
+            $entry->ownerid = $USER->id;
+            $entryid = $DB->insert_record('question_bank_entries', $entry);
+
+            $version = new stdClass();
+            $version->questionbankentryid = $entryid;
+            $version->version = 1;
+            $version->status = 'ready';
+            $version->questionid = $qid;
+            $DB->insert_record('question_versions', $version);
+
+            // Opciones y respuestas de la pregunta
+            $answer = new stdClass();
+            $answer->question = $qid;
+            $answer->answer = $questionans;
+            $answer->fraction = 1.0;
+            $answer->feedback = '';
+            $answer->feedbackformat = FORMAT_HTML;
+            $DB->insert_record('question_answers', $answer);
+
+            $qtype_sa = new stdClass();
+            $qtype_sa->questionid = $qid;
+            $qtype_sa->usecase = 0;
+            $DB->insert_record('qtype_shortanswer_options', $qtype_sa);
+
+            // Slot en el cuestionario
+            $slot = new stdClass();
+            $slot->quizid = $quiz->id;
+            $slot->slot = $question_count + 1;
+            $slot->page = 1;
+            $slot->maxmark = 1.0; 
+            $slotid = $DB->insert_record('quiz_slots', $slot);
+
+            // En Moodle 4.x se requiere usingcontextid = CONTEXT_MODULE para mod_quiz
+            $reference = new stdClass();
+            $reference->usingcontextid = \context_module::instance($cmid)->id;
+            $reference->component = 'mod_quiz';
+            $reference->questionarea = 'slot';
+            $reference->itemid = $slotid;
+            $reference->questionbankentryid = $entryid;
+            $reference->version = null;
+            $DB->insert_record('question_references', $reference);
+
             $question_count++;
+            $sumgrades += 1.0;
         }
+
+        // Recalcular calificaciones nativas con la API de Moodle 4.x
+        $gradecalculator = \mod_quiz\quiz_settings::create($quiz->id)->get_grade_calculator();
+        $gradecalculator->recompute_quiz_sumgrades();
+
+        $finalgrade = $sumgrades > 0 ? $sumgrades : 10.0;
+        $DB->set_field('quiz', 'grade', $finalgrade, ['id' => $quiz->id]);
+        $gradecalculator->update_quiz_maximum_grade($finalgrade);
+
+        $DB->insert_record('local_testmanager_tests', [
+            'categoryid' => $categoryid,
+            'quizid' => $quiz->id,
+            'name' => $testname,
+            'question_count' => $question_count,
+            'timecreated' => time()
+        ]);
     }
 
-    // Insertar el test una sola vez con el conteo real de preguntas extraído del CSV
-    $newtestid = $DB->insert_record('local_testmanager_tests', [
-        'categoryid' => $categoryid,
-        'name' => $testname,
-        'question_count' => $question_count,
-        'timecreated' => time()
-    ]);
-
-    // Obtener el curso al que pertenece la categoría para mantener el filtro activo al recargar
-    $catrecord = $DB->get_record('local_testmanager_categories', ['id' => $categoryid]);
-    $redirecturl = new moodle_url('/local/testmanager/index.php');
-    if ($catrecord) {
-        $redirecturl->param('filtercourse', $catrecord->courseid);
-    }
-
-    redirect($redirecturl, 'Test e importación de CSV procesados correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+    $redirecturl = new moodle_url('/local/testmanager/index.php', ['filtercourse' => $tmcourseid]);
+    redirect($redirecturl, 'Cuestionario nativo creado, categorizado e integrado con éxito.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 echo $OUTPUT->header();
 ?>
@@ -213,140 +448,226 @@ echo $OUTPUT->header();
 
     <!-- Listado de Cursos y Categorías -->
     <?php
-    if ($filtercourse > 0) {
-        $courses = $DB->get_records('local_testmanager_courses', ['id' => $filtercourse]);
+    if (!empty($search)) {
+        $escapedsearch = $DB->sql_like_escape($search);
+        $searchparam = '%' . $escapedsearch . '%';
+        
+        $sqlcourses = "SELECT DISTINCT c.id, c.name, c.timecreated 
+                       FROM {local_testmanager_courses} c
+                       JOIN {local_testmanager_categories} cat ON cat.courseid = c.id
+                       JOIN {local_testmanager_tests} t ON t.categoryid = cat.id
+                       WHERE " . $DB->sql_like('t.name', ':search', false);
+                       
+        if ($filtercourse > 0) {
+            $sqlcourses .= " AND c.id = :filtercourse";
+            $courses = $DB->get_records_sql($sqlcourses, ['search' => $searchparam, 'filtercourse' => $filtercourse]);
+        } else {
+            $courses = $DB->get_records_sql($sqlcourses, ['search' => $searchparam]);
+        }
     } else {
-        $courses = $DB->get_records('local_testmanager_courses');
+        if ($filtercourse > 0) {
+            $courses = $DB->get_records('local_testmanager_courses', ['id' => $filtercourse]);
+        } else {
+            $courses = $DB->get_records('local_testmanager_courses');
+        }
     }
 
-    foreach ($courses as $course) {
-        $categories = $DB->get_records_sql("SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0", [$course->id]);
-        $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $course->id, 'is_trash' => 1]);
+    $found_any_results = false;
 
-        $total_questions = 0;
-        foreach ($categories as $cat) {
-            $total_questions += $DB->get_field_sql("SELECT SUM(question_count) FROM {local_testmanager_tests} WHERE categoryid = ?", [$cat->id]) ?: 0;
-        }
-        $total_tests = $DB->count_records_sql("SELECT COUNT(t.id) FROM {local_testmanager_tests} t JOIN {local_testmanager_categories} c ON t.categoryid = c.id WHERE c.courseid = ? AND c.is_trash = 0", [$course->id]);
+    if (empty($courses)) {
+        echo '<div class="alert bg-white border text-center py-4 rounded shadow-sm text-muted">No se encontraron tests que coincidan con <strong>"' . s($search) . '"</strong>.</div>';
+    } else {
+        foreach ($courses as $course) {
+            $categories = $DB->get_records_sql("SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0", [$course->id]);
+            $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $course->id, 'is_trash' => 1]);
 
-        echo '<div class="testmanager-course-card mb-4 p-3 bg-white border rounded shadow-sm">';
+            $testsql = "SELECT t.* FROM {local_testmanager_tests} t 
+                        JOIN {local_testmanager_categories} c ON t.categoryid = c.id 
+                        WHERE c.courseid = :courseid AND c.is_trash = 0";
+            $testparams = ['courseid' => $course->id];
 
-        // Cabecera Principal del Curso
-        echo '<div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">';
-        echo '<div class="d-flex align-items-center">';
-        echo '<div class="d-flex align-items-center justify-content-center bg-light rounded p-2 mr-3" style="width: 42px; height: 42px; min-width: 42px;">';
-        echo '<i class="fa fa-folder text-info fa-lg"></i>';
-        echo '</div>';
-        echo '<div>';
-        echo '<h5 class="mb-0 font-weight-bold text-dark" style="font-size: 1rem !important; text-transform: none !important;">' . format_string($course->name) . ' <span class="badge badge-secondary ml-2">' . $total_tests . ' tests</span></h5>';
-        echo '<small class="text-muted">Total: <strong>' . $total_questions . ' preguntas</strong></small>';
-        echo '</div></div>';
-
-        echo '<div class="d-flex align-items-center">';
-        if ($trashcat) {
-            $trashed_tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $trashcat->id]);
-
-            $tests_data = [];
-            foreach ($trashed_tests as $tt) {
-                $restoreurl = new moodle_url('/local/testmanager/index.php', ['action' => 'restoretest', 'testid' => $tt->id, 'sesskey' => sesskey()]);
-                $tests_data[] = [
-                    'name' => format_string($tt->name),
-                    'questions' => $tt->question_count,
-                    'date' => date('Y-m-d', $tt->timecreated),
-                    'restoreurl' => $restoreurl->out(false)
-                ];
+            if (!empty($search)) {
+                $testsql .= " AND " . $DB->sql_like('t.name', ':search', false);
+                $testparams['search'] = '%' . $DB->sql_like_escape($search) . '%';
             }
 
-            $emptytrashurl = new moodle_url('/local/testmanager/index.php', ['action' => 'emptytrash', 'courseid' => $course->id, 'sesskey' => sesskey()]);
+            $course_tests = $DB->get_records_sql($testsql, $testparams);
+            
+            if (!empty($search) && empty($course_tests)) {
+                continue;
+            }
 
-            echo '<button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 mr-3 btn-abrir-papelera" style="text-transform: none; font-size: 12px;" ' .
-                'data-toggle="modal" data-target="#modalPapeleraCurso" ' .
-                'data-coursename="' . s($course->name) . '" ' .
-                'data-emptyurl="' . $emptytrashurl . '" ' .
-                'data-tests=\'' . json_encode($tests_data) . '\'>' .
-                '<i class="fa fa-trash mr-1"></i> Papelera del Curso</button>';
-        }
+            $found_any_results = true;
+            $total_tests = count($course_tests);
+            
+            $total_questions = 0;
+            foreach ($course_tests as $ctest) {
+                $total_questions += $ctest->question_count;
+            }
 
-        $deletecourseurl = new moodle_url('/local/testmanager/index.php', [
-            'action' => 'deletecourse',
-            'courseid' => $course->id,
-            'sesskey' => sesskey()
-        ]);
+            echo '<div class="testmanager-course-card mb-4 p-3 bg-white border rounded shadow-sm">';
 
-        echo '<a href="#" class="text-muted btn-abrir-modal-curso" data-toggle="modal" data-target="#modalEliminarCurso" ' .
-            'data-coursename="' . s($course->name) . '" ' .
-            'data-testcount="' . $total_tests . '" ' .
-            'data-questioncount="' . $total_questions . '" ' .
-            'data-deleteurl="' . $deletecourseurl->out(false) . '"><i class="fa fa-times"></i></a>';
-        echo '</div>';
-        echo '</div>';
+            // Cabecera Principal del Curso
+            echo '<div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">';
+            echo '<div class="d-flex align-items-center">';
+            echo '<div class="d-flex align-items-center justify-content-center bg-light rounded p-2 mr-3" style="width: 42px; height: 42px; min-width: 42px;">';
+            echo '<i class="fa fa-folder text-info fa-lg"></i>';
+            echo '</div>';
+            echo '<div>';
+            echo '<h5 class="mb-0 font-weight-bold text-dark" style="font-size: 1rem !important; text-transform: none !important;">' . format_string($course->name) . ' <span class="badge badge-secondary ml-2">' . $total_tests . ' tests</span></h5>';
+            echo '<small class="text-muted">Total: <strong>' . $total_questions . ' preguntas</strong></small>';
+            echo '</div></div>';
 
-        // Recorrido de Subcategorías
-        foreach ($categories as $cat) {
-            // Calcular contadores por categoría correctamente
-            $cat_tests_count = $DB->count_records('local_testmanager_tests', ['categoryid' => $cat->id]);
-            $cat_questions_count = $DB->get_field_sql("SELECT SUM(question_count) FROM {local_testmanager_tests} WHERE categoryid = ?", [$cat->id]) ?: 0;
+            echo '<div class="d-flex align-items-center">';
+            if ($trashcat) {
+                $trashed_tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $trashcat->id]);
 
-            $deletecaturl = new moodle_url('/local/testmanager/index.php', [
-                'action' => 'deletecategory',
-                'categoryid' => $cat->id,
+                $tests_data = [];
+                foreach ($trashed_tests as $tt) {
+                    $restoreurl = new moodle_url('/local/testmanager/index.php', ['action' => 'restoretest', 'testid' => $tt->id, 'sesskey' => sesskey()]);
+                    $tests_data[] = [
+                        'name' => format_string($tt->name),
+                        'questions' => $tt->question_count,
+                        'date' => date('Y-m-d', $tt->timecreated),
+                        'restoreurl' => $restoreurl->out(false)
+                    ];
+                }
+
+                $emptytrashurl = new moodle_url('/local/testmanager/index.php', ['action' => 'emptytrash', 'courseid' => $course->id, 'sesskey' => sesskey()]);
+
+                echo '<button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 mr-3 btn-abrir-papelera" style="text-transform: none; font-size: 12px;" ' .
+                    'data-toggle="modal" data-target="#modalPapeleraCurso" ' .
+                    'data-coursename="' . s($course->name) . '" ' .
+                    'data-emptyurl="' . $emptytrashurl . '" ' .
+                    'data-tests=\'' . json_encode($tests_data) . '\'>' .
+                    '<i class="fa fa-trash mr-1"></i> Papelera del Curso</button>';
+            }
+
+            $deletecourseurl = new moodle_url('/local/testmanager/index.php', [
+                'action' => 'deletecourse',
+                'courseid' => $course->id,
                 'sesskey' => sesskey()
             ]);
 
-            echo '<div class="mb-3 pl-2">';
-            echo '<div class="d-flex justify-content-between align-items-center mb-2 pr-2" style="font-size: 0.9rem;">';
-            echo '<div class="d-flex align-items-center text-dark font-weight-bold">';
-            echo '<i class="fa fa-folder-open text-warning mr-2"></i> ' . format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' . $cat_tests_count . ' tests</span>';
+            echo '<a href="#" class="text-muted btn-abrir-modal-curso" data-toggle="modal" data-target="#modalEliminarCurso" ' .
+                'data-coursename="' . s($course->name) . '" ' .
+                'data-testcount="' . $total_tests . '" ' .
+                'data-questioncount="' . $total_questions . '" ' .
+                'data-deleteurl="' . $deletecourseurl->out(false) . '"><i class="fa fa-times"></i></a>';
+            echo '</div>';
             echo '</div>';
 
-            echo '<a href="#" class="text-muted btn-abrir-modal-categoria" data-toggle="modal" data-target="#modalEliminarCategoria" ' .
-                'data-catname="' . s($cat->name) . '" ' .
-                'data-testcount="' . $cat_tests_count . '" ' .
-                'data-questioncount="' . $cat_questions_count . '" ' .
-                'data-deleteurl="' . $deletecaturl->out(false) . '" title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
-            echo '</div>';
+            // Recorrido de Subcategorías
+            foreach ($categories as $cat) {
+                $cat_test_sql = "SELECT * FROM {local_testmanager_tests} WHERE categoryid = :categoryid";
+                $cat_test_params = ['categoryid' => $cat->id];
 
-            $tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $cat->id]);
-            if (empty($tests)) {
-                echo '<div class="text-muted pl-4 mb-2 font-italic small">No hay tests en esta categoría.</div>';
-            } else {
-                foreach ($tests as $t) {
-                    $deleteurl = new moodle_url('/local/testmanager/index.php', ['action' => 'deletetest', 'testid' => $t->id, 'sesskey' => sesskey()]);
-                    echo '<div class="testmanager-item ml-3 p-2 border rounded mb-2 bg-light d-flex justify-content-between align-items-center" draggable="true">';
-                    echo '<div class="d-flex align-items-center">';
-                    echo '<i class="fa fa-grip-vertical text-muted mr-3" style="cursor: grab; font-size: 0.85rem;"></i>';
-                    echo '<div class="d-flex align-items-center justify-content-center bg-white rounded mr-3 shadow-sm" style="width: 34px; height: 34px; min-width: 34px;">';
-                    echo '<i class="fa fa-file-alt text-info"></i>';
-                    echo '</div>';
-                    echo '<div>';
-                    echo '<span class="font-weight-bold text-dark" style="font-size: 0.9rem;">' . format_string($t->name) . '</span><br>';
-                    echo '<span class="badge badge-info mr-2"><i class="fa fa-question-circle mr-1"></i> ' . $t->question_count . ' preguntas</span>';
-                    echo '<small class="text-muted" style="font-size: 75%;">Actualizado: ' . date('Y-m-d', $t->timecreated) . '</small>';
-                    echo '</div>';
-                    echo '</div>';
-                    echo '<div>';
-                    echo '<a href="' . $deleteurl->out(false) . '" class="text-muted" title="Eliminar Test"><i class="fa fa-trash"></i></a>';
-                    echo '</div>';
-                    echo '</div>';
+                if (!empty($search)) {
+                    $cat_test_sql .= " AND " . $DB->sql_like('name', ':search', false);
+                    $cat_test_params['search'] = '%' . $DB->sql_like_escape($search) . '%';
                 }
+
+                $tests = $DB->get_records_sql($cat_test_sql, $cat_test_params);
+
+                if (!empty($search) && empty($tests)) {
+                    continue;
+                }
+
+                $cat_tests_count = count($tests);
+                $cat_questions_count = 0;
+                foreach ($tests as $t_item) {
+                    $cat_questions_count += $t_item->question_count;
+                }
+
+                $deletecaturl = new moodle_url('/local/testmanager/index.php', [
+                    'action' => 'deletecategory',
+                    'categoryid' => $cat->id,
+                    'sesskey' => sesskey()
+                ]);
+
+                echo '<div class="mb-3 pl-2">';
+                echo '<div class="d-flex justify-content-between align-items-center mb-2 pr-2" style="font-size: 0.9rem;">';
+                echo '<div class="d-flex align-items-center text-dark font-weight-bold">';
+                echo '<i class="fa fa-folder-open text-warning mr-2"></i> ' . format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' . $cat_tests_count . ' tests</span>';
+                echo '</div>';
+
+                echo '<a href="#" class="text-muted btn-abrir-modal-categoria" data-toggle="modal" data-target="#modalEliminarCategoria" ' .
+                    'data-catname="' . s($cat->name) . '" ' .
+                    'data-testcount="' . $cat_tests_count . '" ' .
+                    'data-questioncount="' . $cat_questions_count . '" ' .
+                    'data-deleteurl="' . $deletecaturl->out(false) . '" title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
+                echo '</div>';
+
+                if (empty($tests)) {
+                    echo '<div class="text-muted pl-4 mb-2 font-italic small">No hay tests en esta categoría.</div>';
+                } else {
+                    foreach ($tests as $t) {
+                        $deleteurl = new moodle_url('/local/testmanager/index.php', ['action' => 'deletetest', 'testid' => $t->id, 'sesskey' => sesskey()]);
+
+                        $cm = null;
+                        if (!empty($t->quizid)) {
+                            $cm = get_coursemodule_from_instance('quiz', $t->quizid);
+                        }
+                        if (!$cm) {
+                            // Fallback de compatibilidad para tests antiguos
+                            $cm = $DB->get_record_sql("SELECT cm.id FROM {course_modules} cm 
+                            JOIN {modules} m ON cm.module = m.id 
+                            JOIN {quiz} q ON cm.instance = q.id 
+                            WHERE m.name = 'quiz' AND q.name = ?", [$t->name], IGNORE_MULTIPLE);
+                        }
+
+                        $nativeurl = $cm ? new moodle_url('/mod/quiz/view.php', ['id' => $cm->id]) : '#';
+
+                        echo '<div class="testmanager-item ml-3 p-2 border rounded mb-2 bg-light d-flex justify-content-between align-items-center" draggable="true">';
+                        echo '<div class="d-flex align-items-center">';
+                        echo '<i class="fa fa-grip-vertical text-muted mr-3" style="cursor: grab; font-size: 0.85rem;"></i>';
+                        echo '<div class="d-flex align-items-center justify-content-center bg-white rounded mr-3 shadow-sm" style="width: 34px; height: 34px; min-width: 34px;">';
+                        echo '<i class="fa fa-file-alt text-info"></i>';
+                        echo '</div>';
+                        echo '<div>';
+
+                        if ($cm) {
+                            echo '<a href="' . $nativeurl->out(false) . '" class="font-weight-bold text-dark text-decoration-none" style="font-size: 0.9rem;" title="Ver test en Moodle">' . format_string($t->name) . '</a><br>';
+                        } else {
+                            echo '<span class="font-weight-bold text-dark" style="font-size: 0.9rem;">' . format_string($t->name) . ' (No vinculado a Moodle)</span><br>';
+                        }
+
+                        echo '<span class="badge badge-info mr-2"><i class="fa fa-question-circle mr-1"></i> ' . $t->question_count . ' preguntas</span>';
+                        echo '<small class="text-muted" style="font-size: 75%;">Actualizado: ' . date('Y-m-d', $t->timecreated) . '</small>';
+                        echo '</div>';
+                        echo '</div>';
+
+                        echo '<div class="d-flex align-items-center">';
+                        if ($cm) {
+                            echo '<a href="' . $nativeurl->out(false) . '" class="text-info mr-3" title="Ir al Cuestionario"><i class="fa fa-external-link-alt"></i></a>';
+                        }
+                        echo '<a href="' . $deleteurl->out(false) . '" class="text-muted" title="Eliminar Test"><i class="fa fa-trash"></i></a>';
+                        echo '</div>';
+                        echo '</div>';
+                    }
+                }
+                echo '</div>';
+            }
+
+            $firstcat = reset($categories);
+            $firstcatid = $firstcat ? $firstcat->id : 0;
+
+            echo '<div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">';
+            echo '<small class="text-muted" style="text-transform: none;"><i class="fa fa-grip-vertical mr-1"></i> Arrastre un test para reordenar o mover</small>';
+            echo '<div>';
+            if ($firstcatid) {
+                echo '<button class="btn btn-outline-secondary btn-sm rounded-pill px-3 mr-2 bg-white btn-abrir-importar" type="button" data-toggle="modal" data-target="#modalImportarTest" data-categoryid="' . $firstcatid . '" style="text-transform: none; font-size: 12px;"><i class="fa fa-upload mr-1"></i> Importar Test CSV</button>';
+                echo '<button class="btn btn-outline-info btn-sm rounded-pill px-3 bg-white btn-abrir-banco" type="button" data-toggle="modal" data-target="#modalImportarBanco" data-categoryid="' . $firstcatid . '" style="text-transform: none; font-size: 12px;"><i class="fa fa-database mr-1"></i> Importar desde Banco</button>';
             }
             echo '</div>';
+            echo '</div>';
+
+            echo '</div>';
         }
 
-        $firstcat = reset($categories);
-        $firstcatid = $firstcat ? $firstcat->id : 0;
-
-        echo '<div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">';
-        echo '<small class="text-muted" style="text-transform: none;"><i class="fa fa-grip-vertical mr-1"></i> Arrastre un test para reordenar o mover</small>';
-        echo '<div>';
-        if ($firstcatid) {
-            echo '<button class="btn btn-outline-secondary btn-sm rounded-pill px-3 mr-2 bg-white btn-abrir-importar" type="button" data-toggle="modal" data-target="#modalImportarTest" data-categoryid="' . $firstcatid . '" style="text-transform: none; font-size: 12px;"><i class="fa fa-upload mr-1"></i> Importar Test CSV</button>';
-            echo '<button class="btn btn-outline-info btn-sm rounded-pill px-3 bg-white btn-abrir-banco" type="button" data-toggle="modal" data-target="#modalImportarBanco" data-categoryid="' . $firstcatid . '" style="text-transform: none; font-size: 12px;"><i class="fa fa-database mr-1"></i> Importar desde Banco</button>';
+        if (!empty($search) && !$found_any_results) {
+            echo '<div class="alert bg-white border text-center py-4 rounded shadow-sm text-muted">No se encontraron tests que coincidan con <strong>"' . s($search) . '"</strong>.</div>';
         }
-        echo '</div>';
-        echo '</div>';
-
-        echo '</div>';
     }
     ?>
 </div>
@@ -411,10 +732,7 @@ echo $OUTPUT->header();
                 </button>
             </div>
             <div class="modal-body px-4 py-3">
-                <?php
-                // Se reutiliza la misma instancia validada y procesada arriba
-                $testform->display();
-                ?>
+                <?php $testform->display(); ?>
             </div>
         </div>
     </div>
@@ -476,6 +794,7 @@ echo $OUTPUT->header();
         </div>
     </div>
 </div>
+
 <!-- Modal para Eliminar Categoría -->
 <div class="modal fade" id="modalEliminarCategoria" tabindex="-1" role="dialog" aria-labelledby="modalEliminarCategoriaLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" role="document">
@@ -507,12 +826,11 @@ echo $OUTPUT->header();
         </div>
     </div>
 </div>
+
 <!-- Modal para Papelera del Curso -->
 <div class="modal fade" id="modalPapeleraCurso" tabindex="-1" role="dialog" aria-labelledby="modalPapeleraCursoLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
         <div class="modal-content border-0 shadow-lg rounded-lg overflow-hidden">
-
-            <!-- Cabecera Verde Clara del Modal -->
             <div class="modal-header border-bottom px-4 pt-4 pb-3" style="background-color: #f4fbf7;">
                 <div class="d-flex align-items-center w-100">
                     <div class="d-flex align-items-center justify-content-center rounded p-2 mr-3 text-success" style="width: 42px; height: 42px; background-color: #e3f5ec;">
@@ -530,10 +848,7 @@ echo $OUTPUT->header();
                     <span aria-hidden="true">&times;</span>
                 </button>
             </div>
-
-            <!-- Cuerpo del Modal -->
             <div class="modal-body px-4 py-3 bg-white">
-                <!-- Alerta de conteo y botón Vaciar Papelera -->
                 <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
                     <small class="text-muted font-weight-bold" id="modal-trash-count">
                         <i class="fa fa-exclamation-circle text-warning mr-1"></i> 0 tests reciclados en esta papelera
@@ -542,39 +857,28 @@ echo $OUTPUT->header();
                         Vaciar Papelera
                     </a>
                 </div>
-
-                <!-- Contenedor dinámico de la lista de tests eliminados -->
-                <div id="modal-trash-tests-container" style="max-height: 350px; overflow-y: auto; padding-right: 4px;">
-                    <!-- Los tests se inyectarán aquí mediante JS -->
-                </div>
+                <div id="modal-trash-tests-container" style="max-height: 350px; overflow-y: auto; padding-right: 4px;"></div>
             </div>
-
-            <!-- Pie del Modal -->
             <div class="modal-footer border-top bg-light px-4 py-3">
                 <button type="button" class="btn btn-light border rounded-pill px-4 text-dark font-weight-bold shadow-sm" data-dismiss="modal">Cerrar Papelera</button>
             </div>
-
         </div>
     </div>
 </div>
 
-<!-- Scripts unificados de interactividad -->
 <script>
     require(['jquery', 'core/modal_factory', 'core/str'], function($, ModalFactory, Str) {
         $(document).ready(function() {
-        // Pasar ID de categoría al abrir el modal de CSV
-        $(document).on('click', '.btn-abrir-importar', function(e) {
-            var categoryid = $(this).attr('data-categoryid');
-            $('#id_categoryid').val(categoryid); // <-- Cambiado de input[name="categoryid"] a #id_categoryid
-        });
+            $(document).on('click', '.btn-abrir-importar', function(e) {
+                var categoryid = $(this).attr('data-categoryid');
+                $('#id_categoryid').val(categoryid);
+            });
 
-        // Pasar ID de categoría al abrir el modal de banco
-        $(document).on('click', '.btn-abrir-banco', function(e) {
-            var categoryid = $(this).attr('data-categoryid');
-            $('#id_bank_categoryid').val(categoryid); // Asegura también el del banco si aplica
-        });
+            $(document).on('click', '.btn-abrir-banco', function(e) {
+                var categoryid = $(this).attr('data-categoryid');
+                $('#id_bank_categoryid').val(categoryid);
+            });
 
-            // Forzar apertura y datos del modal de eliminar curso de forma segura
             $(document).on('click', '.btn-abrir-modal-curso', function(e) {
                 e.preventDefault();
                 var coursename = $(this).attr('data-coursename');
@@ -590,7 +894,6 @@ echo $OUTPUT->header();
                 $('#modalEliminarCurso').modal('show');
             });
 
-            // Forzar apertura y datos del modal de eliminar categoría de forma segura
             $(document).on('click', '.btn-abrir-modal-categoria', function(e) {
                 e.preventDefault();
                 var catname = $(this).attr('data-catname');
@@ -606,7 +909,6 @@ echo $OUTPUT->header();
                 $('#modalEliminarCategoria').modal('show');
             });
 
-            // Inyectar datos al abrir el modal de papelera del curso
             $(document).on('click', '.btn-abrir-papelera', function(e) {
                 var coursename = $(this).attr('data-coursename');
                 var emptyurl = $(this).attr('data-emptyurl');
