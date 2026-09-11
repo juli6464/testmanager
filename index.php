@@ -325,6 +325,12 @@ if ($tdata = $testform->get_data()) {
                 // Es una opción de respuesta
                 if (isset($data[1]) && trim($data[1]) !== '') {
                     $optText = trim($data[1]);
+                    
+                    // Omitir si el texto limpio de etiquetas HTML está vacío (ej. <p></p>)
+                    if (strip_tags($optText) === '') {
+                        continue;
+                    }
+
                     // Comprobar si la columna 3 (índice 2) marca la correcta con 'x' o 'X'
                     $is_correct = false;
                     if (isset($data[2]) && strtolower(trim($data[2], " \t\n\r\0\x0B\"")) === 'x') {
