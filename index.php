@@ -119,8 +119,20 @@ if ($action === 'emptytrash' && $courseid && confirm_sesskey()) {
 }
 
 if ($action === 'deletetest' && $testid && confirm_sesskey()) {
-    $DB->delete_records('local_testmanager_tests', ['id' => $testid]);
-    redirect(new moodle_url('/local/testmanager/index.php'), 'Test eliminado correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+    $test = $DB->get_record('local_testmanager_tests', ['id' => $testid]);
+    if ($test) {
+        // Obtener la categoría actual del test para saber a qué curso pertenece
+        $currentcat = $DB->get_record('local_testmanager_categories', ['id' => $test->categoryid]);
+        if ($currentcat) {
+            // Buscar la categoría papelera (is_trash = 1) de ese mismo curso
+            $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $currentcat->courseid, 'is_trash' => 1]);
+            if ($trashcat) {
+                // Mover el test a la papelera cambiando su categoryid
+                $DB->set_field('local_testmanager_tests', 'categoryid', $trashcat->id, ['id' => $testid]);
+            }
+        }
+    }
+    redirect(new moodle_url('/local/testmanager/index.php'), 'Test movido a la papelera correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 // Lógica para eliminar el curso y sus categorías/tests asociados
@@ -704,7 +716,9 @@ echo $OUTPUT->header();
                         if ($cm) {
                             echo '<a href="' . $nativeurl->out(false) . '" class="text-info mr-3" title="Ir al Cuestionario"><i class="fa fa-external-link-alt"></i></a>';
                         }
-                        echo '<a href="' . $deleteurl->out(false) . '" class="text-muted" title="Eliminar Test"><i class="fa fa-trash"></i></a>';
+                        echo '<a href="#" class="text-muted btn-abrir-modal-test" data-toggle="modal" data-target="#modalEliminarTest" ' .
+                            'data-testname="' . s($t->name) . '" ' .
+                            'data-deleteurl="' . $deleteurl->out(false) . '" title="Eliminar Test"><i class="fa fa-trash"></i></a>';
                         echo '</div>';
                         echo '</div>';
                     }
@@ -889,7 +903,36 @@ echo $OUTPUT->header();
         </div>
     </div>
 </div>
-
+<!-- Modal para Eliminar Test -->
+<div class="modal fade" id="modalEliminarTest" tabindex="-1" role="dialog" aria-labelledby="modalEliminarTestLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg rounded-lg">
+            <div class="modal-header border-bottom-0 pb-0 pt-4 px-4" style="background-color: #fdf2f2;">
+                <div class="d-flex align-items-center">
+                    <div class="d-flex align-items-center justify-content-center rounded-circle p-2 mr-3 text-danger" style="width: 40px; height: 40px; background-color: #fde8e8;">
+                        <i class="fa fa-trash fa-lg"></i>
+                    </div>
+                    <h5 class="modal-title font-weight-bold text-danger" id="modalEliminarTestLabel">Eliminar Test</h5>
+                </div>
+                <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body px-4 py-3" style="background-color: #fdf2f2;">
+                <p class="text-dark mb-3" style="font-size: 0.95rem;">
+                    ¿Está seguro de que desea eliminar el test <strong id="modal-test-nombre" class="text-danger"></strong>?
+                </p>
+                <p class="text-muted small mb-4">
+                    El test se quitará de esta categoría y se moverá a la papelera del curso. Podrá restaurarlo más adelante si lo desea.
+                </p>
+                <div class="d-flex justify-content-end">
+                    <button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" data-dismiss="modal">Cancelar</button>
+                    <a href="#" id="btn-confirmar-eliminar-test" class="btn btn-danger rounded-pill px-4 text-white font-weight-bold" style="background-color: #e53e3e; border-color: #e53e3e;">Eliminar</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 <!-- Modal para Papelera del Curso -->
 <div class="modal fade" id="modalPapeleraCurso" tabindex="-1" role="dialog" aria-labelledby="modalPapeleraCursoLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
@@ -995,6 +1038,16 @@ echo $OUTPUT->header();
                     html += '</ul>';
                 }
                 $('#modal-trash-tests-container').html(html);
+            });
+            $(document).on('click', '.btn-abrir-modal-test', function(e) {
+                e.preventDefault();
+                var testname = $(this).attr('data-testname');
+                var deleteurl = $(this).attr('data-deleteurl');
+
+                $('#modal-test-nombre').text('"' + testname + '"');
+                $('#btn-confirmar-eliminar-test').attr('href', deleteurl);
+
+                $('#modalEliminarTest').modal('show');
             });
         });
     });
