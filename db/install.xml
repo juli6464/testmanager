@@ -31,6 +31,7 @@
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="categoryid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="origcategoryid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="Categoria de origen cuando el test esta en la papelera"/>
         <FIELD NAME="quizid" TYPE="int" LENGTH="10" NOTNULL="false" DEFAULT="0"/>
         <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true"/>
         <FIELD NAME="question_count" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>

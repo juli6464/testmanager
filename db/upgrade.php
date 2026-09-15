@@ -42,5 +42,35 @@ function xmldb_local_testmanager_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026091500, 'local', 'testmanager');
     }
 
+    if ($oldversion < 2026091501) {
+        // The access.php capabilities file was added in this version.
+        // No schema changes needed; the capability is installed by Moodle automatically.
+        upgrade_plugin_savepoint(true, 2026091501, 'local', 'testmanager');
+    }
+
+    if ($oldversion < 2026091502) {
+        // Guardar la categoría de origen para poder restaurar un test al sitio del que salió.
+        $table = new xmldb_table('local_testmanager_tests');
+        $field = new xmldb_field('origcategoryid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'categoryid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Asegurar que todo curso lógico tiene su categoría "Papelera".
+        $courses = $DB->get_records('local_testmanager_courses', null, '', 'id');
+        foreach ($courses as $course) {
+            if (!$DB->record_exists('local_testmanager_categories', ['courseid' => $course->id, 'is_trash' => 1])) {
+                $DB->insert_record('local_testmanager_categories', [
+                    'courseid'    => $course->id,
+                    'name'        => 'Papelera',
+                    'is_trash'    => 1,
+                    'timecreated' => time(),
+                ]);
+            }
+        }
+
+        upgrade_plugin_savepoint(true, 2026091502, 'local', 'testmanager');
+    }
+
     return true;
 }

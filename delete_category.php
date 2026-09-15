@@ -1,42 +1,60 @@
 <?php
 require_once(__DIR__ . '/../../config.php');
+require_once($CFG->dirroot . '/local/testmanager/lib.php');
 
 $id      = required_param('id', PARAM_INT);
 $confirm = optional_param('confirm', 0, PARAM_INT);
 
 require_login();
-$PAGE->set_context(context_system::instance());
-require_capability('local/testmanager:manage', context_system::instance());
+$context = context_system::instance();
+$PAGE->set_context($context);
+require_capability('local/testmanager:manage', $context);
 $PAGE->set_url(new moodle_url('/local/testmanager/delete_category.php', ['id' => $id]));
 $PAGE->set_title('Eliminar Categoría');
 
 $category = $DB->get_record('local_testmanager_categories', ['id' => $id], '*', MUST_EXIST);
+$returnurl = new moodle_url('/local/testmanager/index.php', ['filtercourse' => $category->courseid]);
 
 if ($category->is_trash == 1) {
-    redirect(new moodle_url('/local/testmanager/index.php'), 'No se puede eliminar la papelera del sistema.', null, \core\output\notification::NOTIFY_ERROR);
+    redirect($returnurl, 'No se puede eliminar la papelera del curso. Utilice "Vaciar papelera".',
+        null, \core\output\notification::NOTIFY_ERROR);
 }
 
-$testcount = $DB->count_records('local_testmanager_tests', ['categoryid' => $id]);
+$testids = $DB->get_fieldset_select('local_testmanager_tests', 'id', 'categoryid = ?', [$id]);
+$testcount = count($testids);
 
-if ($testcount > 0 && !$confirm) {
+if (!$confirm) {
+    $message = $testcount > 0
+        ? "Esta categoría contiene <strong>{$testcount} tests</strong> asociados. Si procede, la categoría, " .
+          "sus tests y los cuestionarios de Moodle asociados serán eliminados de forma definitiva."
+        : "¿Desea eliminar definitivamente la categoría <strong>" . format_string($category->name) . "</strong>?";
+
     echo $OUTPUT->header();
     echo $OUTPUT->confirm(
-        "Esta categoría contiene <strong>{$testcount} tests</strong> asociados. Si procede, la categoría y todos sus tests serán eliminados de forma definitiva.",
-        new moodle_url('/local/testmanager/delete_category.php', ['id' => $id, 'confirm' => 1]),
-        new moodle_url('/local/testmanager/index.php')
+        $message,
+        new moodle_url('/local/testmanager/delete_category.php', ['id' => $id, 'confirm' => 1, 'sesskey' => sesskey()]),
+        $returnurl
     );
     echo $OUTPUT->footer();
     exit;
 }
 
-// Eliminación en cascada de tests y categoría
-$transaction = $DB->start_delegated_transaction();
+require_sesskey();
+
+// Los cmid se resuelven antes del borrado, y los módulos se eliminan tras confirmar la transacción.
+$cmids = local_testmanager_get_test_cmids($testids);
+
 try {
+    $transaction = $DB->start_delegated_transaction();
     $DB->delete_records('local_testmanager_tests', ['categoryid' => $id]);
     $DB->delete_records('local_testmanager_categories', ['id' => $id]);
     $transaction->allow_commit();
 } catch (Exception $e) {
-    $transaction->rollback($e);
+    redirect($returnurl, 'Error al eliminar la categoría: ' . $e->getMessage(),
+        null, \core\output\notification::NOTIFY_ERROR);
 }
 
-redirect(new moodle_url('/local/testmanager/index.php'), 'Categoría y sus tests eliminados correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+local_testmanager_delete_quiz_modules($cmids);
+
+redirect($returnurl, 'Categoría y sus tests eliminados correctamente.',
+    null, \core\output\notification::NOTIFY_SUCCESS);

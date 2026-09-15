@@ -4,9 +4,9 @@ require_once($CFG->dirroot . '/local/testmanager/classes/form/course_form.php');
 require_once($CFG->dirroot . '/local/testmanager/classes/form/category_form.php');
 require_once($CFG->dirroot . '/local/testmanager/classes/form/test_form.php');
 require_once($CFG->dirroot . '/local/testmanager/classes/form/bank_test_form.php');
+require_once($CFG->dirroot . '/local/testmanager/lib.php');
 
 require_login();
-require_capability('local/testmanager:manage', context_system::instance());
 
 global $DB;
 $dbman = $DB->get_manager();
@@ -32,6 +32,11 @@ if (!$dbman->table_exists('local_testmanager_courses')) {
     $field_qid = new xmldb_field('quizid', XMLDB_TYPE_INTEGER, '10', null, null, null, '0');
     if (!$dbman->field_exists($table_tests, $field_qid)) {
         $dbman->add_field($table_tests, $field_qid);
+    }
+
+    $field_origcat = new xmldb_field('origcategoryid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'categoryid');
+    if (!$dbman->field_exists($table_tests, $field_origcat)) {
+        $dbman->add_field($table_tests, $field_origcat);
     }
 }
 
@@ -83,6 +88,7 @@ foreach ($unlinked_tests as $ut) {
 }
 
 $PAGE->set_context(context_system::instance());
+require_capability('local/testmanager:manage', context_system::instance());
 $PAGE->set_url(new moodle_url('/local/testmanager/index.php'));
 $PAGE->set_pagelayout('admin');
 $PAGE->set_title('Banco de Preguntas');
@@ -94,52 +100,148 @@ $courseid = optional_param('courseid', 0, PARAM_INT);
 $categoryid = optional_param('categoryid', 0, PARAM_INT);
 $search = optional_param('search', '', PARAM_TEXT);
 $filtercourse = optional_param('filtercourse', 0, PARAM_INT);
+$autoopenpapelera = optional_param('autoopenpapelera', 0, PARAM_INT);
+
+$indexurl = new moodle_url('/local/testmanager/index.php');
 
 // Lógica para restaurar un test individual desde la papelera
 if ($action === 'restoretest' && $testid && confirm_sesskey()) {
-    $test = $DB->get_record('local_testmanager_tests', ['id' => $testid]);
-    if ($test) {
-        $trashcat = $DB->get_record('local_testmanager_categories', ['id' => $test->categoryid, 'is_trash' => 1]);
-        if ($trashcat) {
-            $firstactivecat = $DB->get_record('local_testmanager_categories', ['courseid' => $trashcat->courseid, 'is_trash' => 0], '*', IGNORE_MULTIPLE);
-            if ($firstactivecat) {
-                $DB->set_field('local_testmanager_tests', 'categoryid', $firstactivecat->id, ['id' => $testid]);
-            }
-        }
+    $test = $DB->get_record('local_testmanager_tests', ['id' => $testid], '*', MUST_EXIST);
+    $trashcat = $DB->get_record('local_testmanager_categories', ['id' => $test->categoryid, 'is_trash' => 1]);
+
+    if (!$trashcat) {
+        redirect($indexurl, 'Este test no está en la papelera.', null, \core\output\notification::NOTIFY_ERROR);
     }
-    redirect(new moodle_url('/local/testmanager/index.php'), 'Test restaurado correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+
+    // Preferimos devolverlo a la categoría de la que salió; si ya no existe, a la primera activa del curso.
+    $targetcat = null;
+    if (!empty($test->origcategoryid)) {
+        $targetcat = $DB->get_record('local_testmanager_categories', [
+            'id'       => $test->origcategoryid,
+            'courseid' => $trashcat->courseid,
+            'is_trash' => 0,
+        ]);
+    }
+    if (!$targetcat) {
+        $targetcat = $DB->get_record('local_testmanager_categories',
+            ['courseid' => $trashcat->courseid, 'is_trash' => 0], '*', IGNORE_MULTIPLE);
+    }
+
+    if (!$targetcat) {
+        redirect(new moodle_url('/local/testmanager/index.php', ['filtercourse' => $trashcat->courseid]),
+            'No hay ninguna categoría activa en este curso a la que restaurar el test.',
+            null, \core\output\notification::NOTIFY_ERROR);
+    }
+
+    $DB->update_record('local_testmanager_tests', (object)[
+        'id'             => $test->id,
+        'categoryid'     => $targetcat->id,
+        'origcategoryid' => 0,
+    ]);
+
+    redirect(new moodle_url('/local/testmanager/index.php', ['filtercourse' => $trashcat->courseid]),
+        'Test restaurado en la categoría "' . format_string($targetcat->name) . '".',
+        null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-// Lógica para vaciar toda la papelera de un curso
+// Lógica para vaciar toda la papelera de un curso (borrado definitivo)
 if ($action === 'emptytrash' && $courseid && confirm_sesskey()) {
     $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $courseid, 'is_trash' => 1]);
-    if ($trashcat) {
-        $DB->delete_records('local_testmanager_tests', ['categoryid' => $trashcat->id]);
+    $redirecturl = new moodle_url('/local/testmanager/index.php', ['filtercourse' => $courseid]);
+
+    if (!$trashcat) {
+        redirect($redirecturl, 'Este curso no tiene papelera.', null, \core\output\notification::NOTIFY_ERROR);
     }
-    redirect(new moodle_url('/local/testmanager/index.php'), 'La papelera ha sido vaciada.', null, \core\output\notification::NOTIFY_SUCCESS);
+
+    $testids = $DB->get_fieldset_select('local_testmanager_tests', 'id', 'categoryid = ?', [$trashcat->id]);
+    $cmids = local_testmanager_get_test_cmids($testids);
+
+    try {
+        $transaction = $DB->start_delegated_transaction();
+        $DB->delete_records('local_testmanager_tests', ['categoryid' => $trashcat->id]);
+        $transaction->allow_commit();
+    } catch (Exception $e) {
+        redirect($redirecturl, 'Error al vaciar la papelera: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+
+    local_testmanager_delete_quiz_modules($cmids);
+
+    redirect($redirecturl, 'La papelera ha sido vaciada (' . count($testids) . ' tests eliminados definitivamente).',
+        null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-if ($action === 'deletetest' && $testid && confirm_sesskey()) {
-    $test = $DB->get_record('local_testmanager_tests', ['id' => $testid]);
-    if ($test) {
-        // Obtener la categoría actual del test para saber a qué curso pertenece
-        $currentcat = $DB->get_record('local_testmanager_categories', ['id' => $test->categoryid]);
-        if ($currentcat) {
-            // Buscar la categoría papelera (is_trash = 1) de ese mismo curso
-            $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $currentcat->courseid, 'is_trash' => 1]);
-            if ($trashcat) {
-                // Mover el test a la papelera cambiando su categoryid
-                $DB->set_field('local_testmanager_tests', 'categoryid', $trashcat->id, ['id' => $testid]);
-            }
-        }
+// Lógica para eliminar definitivamente un test que ya está en la papelera
+if ($action === 'purgetest' && $testid && confirm_sesskey()) {
+    $test = $DB->get_record('local_testmanager_tests', ['id' => $testid], '*', MUST_EXIST);
+    $trashcat = $DB->get_record('local_testmanager_categories', ['id' => $test->categoryid, 'is_trash' => 1]);
+
+    if (!$trashcat) {
+        redirect($indexurl, 'Solo se pueden eliminar definitivamente los tests que están en la papelera.',
+            null, \core\output\notification::NOTIFY_ERROR);
     }
-    redirect(new moodle_url('/local/testmanager/index.php'), 'Test movido a la papelera correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+
+    $redirecturl = new moodle_url('/local/testmanager/index.php', [
+        'filtercourse'     => $trashcat->courseid,
+        'autoopenpapelera' => $trashcat->courseid,
+    ]);
+
+    $cmids = local_testmanager_get_test_cmids([$test->id]);
+
+    try {
+        $transaction = $DB->start_delegated_transaction();
+        $DB->delete_records('local_testmanager_tests', ['id' => $test->id]);
+        $transaction->allow_commit();
+    } catch (Exception $e) {
+        redirect($redirecturl, 'Error al eliminar el test: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
+
+    local_testmanager_delete_quiz_modules($cmids);
+
+    redirect($redirecturl, 'Test eliminado definitivamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
+// Lógica para mover un test a la papelera del curso al que pertenece su categoría padre
+if ($action === 'deletetest' && $testid && confirm_sesskey()) {
+    $test = $DB->get_record('local_testmanager_tests', ['id' => $testid], '*', MUST_EXIST);
+    $currentcat = $DB->get_record('local_testmanager_categories', ['id' => $test->categoryid], '*', MUST_EXIST);
+
+    if ($currentcat->is_trash) {
+        redirect(new moodle_url('/local/testmanager/index.php', [
+            'filtercourse'     => $currentcat->courseid,
+            'autoopenpapelera' => $currentcat->courseid,
+        ]), 'El test ya se encuentra en la papelera.', null, \core\output\notification::NOTIFY_WARNING);
+    }
+
+    // La papelera destino es siempre la del curso padre de la categoría actual.
+    $trashcat = local_testmanager_get_trash_category($currentcat->courseid);
+
+    $DB->update_record('local_testmanager_tests', (object)[
+        'id'             => $test->id,
+        'categoryid'     => $trashcat->id,
+        'origcategoryid' => $currentcat->id,
+    ]);
+
+    // Volvemos filtrando por el curso y abriendo su papelera para ver el test ya reciclado.
+    $redirecturl = new moodle_url('/local/testmanager/index.php', [
+        'filtercourse'     => $currentcat->courseid,
+        'autoopenpapelera' => $currentcat->courseid,
+    ]);
+    redirect($redirecturl, 'Test movido a la Papelera del curso correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 // Lógica para eliminar el curso y sus categorías/tests asociados
 if ($action === 'deletecourse' && $courseid && confirm_sesskey()) {
-    $transaction = $DB->start_delegated_transaction();
+    $DB->get_record('local_testmanager_courses', ['id' => $courseid], '*', MUST_EXIST);
+
+    $testids = $DB->get_fieldset_sql(
+        "SELECT t.id
+           FROM {local_testmanager_tests} t
+           JOIN {local_testmanager_categories} c ON c.id = t.categoryid
+          WHERE c.courseid = ?", [$courseid]);
+    $cmids = local_testmanager_get_test_cmids($testids);
+
     try {
+        $transaction = $DB->start_delegated_transaction();
         $categories = $DB->get_records('local_testmanager_categories', ['courseid' => $courseid]);
         foreach ($categories as $cat) {
             $DB->delete_records('local_testmanager_tests', ['categoryid' => $cat->id]);
@@ -148,25 +250,40 @@ if ($action === 'deletecourse' && $courseid && confirm_sesskey()) {
         $DB->delete_records('local_testmanager_courses', ['id' => $courseid]);
         $transaction->allow_commit();
     } catch (Exception $e) {
-        $transaction->rollback($e);
+        redirect($indexurl, 'Error al eliminar el curso: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
-    redirect(new moodle_url('/local/testmanager/index.php'), 'Curso eliminado correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+
+    local_testmanager_delete_quiz_modules($cmids);
+
+    redirect($indexurl, 'Curso eliminado correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 // Lógica para eliminar una categoría y sus tests asociados
 if ($action === 'deletecategory' && $categoryid && confirm_sesskey()) {
-    $transaction = $DB->start_delegated_transaction();
+    $cat = $DB->get_record('local_testmanager_categories', ['id' => $categoryid], '*', MUST_EXIST);
+    $redirecturl = new moodle_url('/local/testmanager/index.php', ['filtercourse' => $cat->courseid]);
+
+    if ($cat->is_trash) {
+        redirect($redirecturl, 'No se puede eliminar la papelera del curso. Utilice "Vaciar papelera".',
+            null, \core\output\notification::NOTIFY_ERROR);
+    }
+
+    $testids = $DB->get_fieldset_select('local_testmanager_tests', 'id', 'categoryid = ?', [$cat->id]);
+    $cmids = local_testmanager_get_test_cmids($testids);
+
     try {
-        $cat = $DB->get_record('local_testmanager_categories', ['id' => $categoryid, 'is_trash' => 0]);
-        if ($cat) {
-            $DB->delete_records('local_testmanager_tests', ['categoryid' => $cat->id]);
-            $DB->delete_records('local_testmanager_categories', ['id' => $cat->id]);
-        }
+        $transaction = $DB->start_delegated_transaction();
+        $DB->delete_records('local_testmanager_tests', ['categoryid' => $cat->id]);
+        $DB->delete_records('local_testmanager_categories', ['id' => $cat->id]);
         $transaction->allow_commit();
     } catch (Exception $e) {
-        $transaction->rollback($e);
+        redirect($redirecturl, 'Error al eliminar la categoría: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
-    redirect(new moodle_url('/local/testmanager/index.php'), 'Categoría eliminada correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
+
+    local_testmanager_delete_quiz_modules($cmids);
+
+    redirect($redirecturl, 'Categoría "' . format_string($cat->name) . '" y sus ' . count($testids) .
+        ' tests eliminados correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 $courseform = new \local_testmanager\form\course_form();
@@ -547,12 +664,18 @@ echo $OUTPUT->header();
 
     $found_any_results = false;
 
+    // Los modales se construyen por elemento y se vuelcan al final, fuera de las tarjetas,
+    // para que Bootstrap los posicione correctamente y para que cada botón "Eliminar"
+    // lleve ya su URL definitiva sin depender de JavaScript.
+    $deletemodals = '';
+
     if (empty($courses)) {
         echo '<div class="alert bg-white border text-center py-4 rounded shadow-sm text-muted">No se encontraron tests que coincidan con <strong>"' . s($search) . '"</strong>.</div>';
     } else {
         foreach ($courses as $course) {
             $categories = $DB->get_records_sql("SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0", [$course->id]);
-            $trashcat = $DB->get_record('local_testmanager_categories', ['courseid' => $course->id, 'is_trash' => 1]);
+            // Todo curso lógico debe tener siempre su papelera; se crea si falta (cursos antiguos).
+            $trashcat = local_testmanager_get_trash_category($course->id);
 
             $testsql = "SELECT t.* FROM {local_testmanager_tests} t 
                         JOIN {local_testmanager_categories} c ON t.categoryid = c.id 
@@ -592,41 +715,51 @@ echo $OUTPUT->header();
             echo '</div></div>';
 
             echo '<div class="d-flex align-items-center">';
-            if ($trashcat) {
-                $trashed_tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $trashcat->id]);
 
-                $tests_data = [];
-                foreach ($trashed_tests as $tt) {
-                    $restoreurl = new moodle_url('/local/testmanager/index.php', ['action' => 'restoretest', 'testid' => $tt->id, 'sesskey' => sesskey()]);
-                    $tests_data[] = [
-                        'name' => format_string($tt->name),
-                        'questions' => $tt->question_count,
-                        'date' => date('Y-m-d', $tt->timecreated),
-                        'restoreurl' => $restoreurl->out(false)
-                    ];
-                }
-
-                $emptytrashurl = new moodle_url('/local/testmanager/index.php', ['action' => 'emptytrash', 'courseid' => $course->id, 'sesskey' => sesskey()]);
-
-                echo '<button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 mr-3 btn-abrir-papelera" style="text-transform: none; font-size: 12px;" ' .
-                    'data-toggle="modal" data-target="#modalPapeleraCurso" ' .
-                    'data-coursename="' . s($course->name) . '" ' .
-                    'data-emptyurl="' . $emptytrashurl . '" ' .
-                    'data-tests=\'' . json_encode($tests_data) . '\'>' .
-                    '<i class="fa fa-trash mr-1"></i> Papelera del Curso</button>';
+            // --- Papelera del curso ---
+            $trashedtests = $DB->get_records('local_testmanager_tests', ['categoryid' => $trashcat->id], 'timecreated DESC');
+            $trashedcount = count($trashedtests);
+            $trashedquestions = 0;
+            foreach ($trashedtests as $tt) {
+                $trashedquestions += $tt->question_count;
             }
 
+            $emptytrashurl = new moodle_url('/local/testmanager/index.php', [
+                'action'   => 'emptytrash',
+                'courseid' => $course->id,
+                'sesskey'  => sesskey(),
+            ]);
+
+            echo '<button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 mr-3" ' .
+                'style="text-transform: none; font-size: 12px;" ' .
+                'data-toggle="modal" data-target="#modalPapelera-' . $course->id . '">' .
+                '<i class="fa fa-trash mr-1"></i> Papelera del Curso ' .
+                '<span class="badge badge-light border ml-1">' . $trashedcount . '</span></button>';
+
+            $deletemodals .= local_testmanager_render_trash_modal(
+                $course, $trashedtests, $trashedcount, $trashedquestions, $emptytrashurl);
+
+            // --- Eliminar curso ---
             $deletecourseurl = new moodle_url('/local/testmanager/index.php', [
                 'action' => 'deletecourse',
                 'courseid' => $course->id,
                 'sesskey' => sesskey()
             ]);
 
-            echo '<a href="#" class="text-muted btn-abrir-modal-curso" data-toggle="modal" data-target="#modalEliminarCurso" ' .
-                'data-coursename="' . s($course->name) . '" ' .
-                'data-testcount="' . $total_tests . '" ' .
-                'data-questioncount="' . $total_questions . '" ' .
-                'data-deleteurl="' . $deletecourseurl->out(false) . '"><i class="fa fa-times"></i></a>';
+            echo '<a href="#" class="text-muted" data-toggle="modal" data-target="#modalEliminarCurso-' . $course->id . '" ' .
+                'title="Eliminar Curso"><i class="fa fa-times"></i></a>';
+
+            $deletemodals .= local_testmanager_render_confirm_modal(
+                'modalEliminarCurso-' . $course->id,
+                'Eliminar Curso',
+                'fa-exclamation-triangle',
+                '¿Está seguro de que desea eliminar el curso <strong class="text-danger">"' . s($course->name) . '"</strong>?',
+                'Atención: este curso contiene <strong>' . $total_tests . ' tests activos</strong> con <strong>' .
+                    $total_questions . ' preguntas</strong> y <strong>' . $trashedcount .
+                    ' tests en la papelera</strong>. Todas sus categorías, tests y los cuestionarios de Moodle ' .
+                    'asociados serán eliminados definitivamente.',
+                $deletecourseurl);
+
             echo '</div>';
             echo '</div>';
 
@@ -647,8 +780,15 @@ echo $OUTPUT->header();
                 }
 
                 $cat_tests_count = count($tests);
+
+                // Para el aviso de borrado hacen falta los totales reales de la categoría,
+                // no los que haya dejado visibles el filtro de búsqueda.
+                $cat_all_tests = empty($search)
+                    ? $tests
+                    : $DB->get_records('local_testmanager_tests', ['categoryid' => $cat->id]);
+                $cat_total_tests = count($cat_all_tests);
                 $cat_questions_count = 0;
-                foreach ($tests as $t_item) {
+                foreach ($cat_all_tests as $t_item) {
                     $cat_questions_count += $t_item->question_count;
                 }
 
@@ -664,11 +804,18 @@ echo $OUTPUT->header();
                 echo '<i class="fa fa-folder-open text-warning mr-2"></i> ' . format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' . $cat_tests_count . ' tests</span>';
                 echo '</div>';
 
-                echo '<a href="#" class="text-muted btn-abrir-modal-categoria" data-toggle="modal" data-target="#modalEliminarCategoria" ' .
-                    'data-catname="' . s($cat->name) . '" ' .
-                    'data-testcount="' . $cat_tests_count . '" ' .
-                    'data-questioncount="' . $cat_questions_count . '" ' .
-                    'data-deleteurl="' . $deletecaturl->out(false) . '" title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
+                echo '<a href="#" class="text-muted" data-toggle="modal" data-target="#modalEliminarCategoria-' . $cat->id . '" ' .
+                    'title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
+
+                $deletemodals .= local_testmanager_render_confirm_modal(
+                    'modalEliminarCategoria-' . $cat->id,
+                    'Eliminar Categoría',
+                    'fa-exclamation-triangle',
+                    '¿Está seguro de que desea eliminar la categoría <strong class="text-danger">"' . s($cat->name) . '"</strong>?',
+                    'Atención: esta categoría contiene <strong>' . $cat_total_tests . ' tests</strong> y <strong>' .
+                        $cat_questions_count . ' preguntas</strong>. La categoría, sus tests y los cuestionarios de ' .
+                        'Moodle asociados serán eliminados definitivamente.',
+                    $deletecaturl);
                 echo '</div>';
 
                 if (empty($tests)) {
@@ -714,9 +861,19 @@ echo $OUTPUT->header();
                         if ($cm) {
                             echo '<a href="' . $nativeurl->out(false) . '" class="text-info mr-3" title="Ir al Cuestionario"><i class="fa fa-external-link-alt"></i></a>';
                         }
-                        echo '<a href="#" class="text-muted btn-abrir-modal-test" data-toggle="modal" data-target="#modalEliminarTest" ' .
-                            'data-testname="' . s($t->name) . '" ' .
-                            'data-deleteurl="' . $deleteurl->out(false) . '" title="Eliminar Test"><i class="fa fa-trash"></i></a>';
+                        echo '<a href="#" class="text-muted" data-toggle="modal" data-target="#modalEliminarTest-' . $t->id . '" ' .
+                            'title="Eliminar Test"><i class="fa fa-trash"></i></a>';
+
+                        $deletemodals .= local_testmanager_render_confirm_modal(
+                            'modalEliminarTest-' . $t->id,
+                            'Eliminar Test',
+                            'fa-trash',
+                            '¿Está seguro de que desea eliminar el test <strong class="text-danger">"' . s($t->name) . '"</strong>?',
+                            null,
+                            $deleteurl,
+                            'El test saldrá de la categoría "' . s($cat->name) . '" y se moverá a la <strong>Papelera del curso ' .
+                                s($course->name) . '</strong>, donde conservará sus ' . $t->question_count .
+                                ' preguntas y podrá restaurarlo o eliminarlo definitivamente.');
                         echo '</div>';
                         echo '</div>';
                     }
@@ -746,6 +903,11 @@ echo $OUTPUT->header();
     }
     ?>
 </div>
+
+<?php
+// Modales de confirmación y papeleras, uno por elemento, con su URL de acción ya resuelta.
+echo $deletemodals;
+?>
 
 <!-- Modal para Nueva Categoría -->
 <div class="modal fade" id="modalNuevaCategoria" tabindex="-1" role="dialog" aria-labelledby="modalNuevaCategoriaLabel" aria-hidden="true">
@@ -838,216 +1000,41 @@ echo $OUTPUT->header();
     </div>
 </div>
 
-<!-- Modal para Eliminar Curso -->
-<div class="modal fade" id="modalEliminarCurso" tabindex="-1" role="dialog" aria-labelledby="modalEliminarCursoLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered" role="document">
-        <div class="modal-content border-0 shadow-lg rounded-lg">
-            <div class="modal-header border-bottom-0 pb-0 pt-4 px-4" style="background-color: #fdf2f2;">
-                <div class="d-flex align-items-center">
-                    <div class="d-flex align-items-center justify-content-center rounded-circle p-2 mr-3 text-danger" style="width: 40px; height: 40px; background-color: #fde8e8;">
-                        <i class="fa fa-exclamation-triangle fa-lg"></i>
-                    </div>
-                    <h5 class="modal-title font-weight-bold text-danger" id="modalEliminarCursoLabel">Eliminar Curso</h5>
-                </div>
-                <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body px-4 py-3" style="background-color: #fdf2f2;">
-                <p class="text-dark mb-3" style="font-size: 0.95rem;">
-                    ¿Está seguro de que desea eliminar el curso <strong id="modal-curso-nombre" class="text-danger"></strong>?
-                </p>
-                <div class="alert border border-danger bg-white text-danger rounded p-3 mb-4 small">
-                    <i class="fa fa-exclamation-triangle mr-1"></i>
-                    Atención: Este curso contiene <strong id="modal-curso-tests" class="pl-1 pr-2">0 tests</strong> y <strong id="modal-curso-preguntas" class="text-danger pl-1">0 preguntas</strong>. Todos los elementos asociados serán removidos definitivamente.
-                </div>
-                <div class="d-flex justify-content-end">
-                    <button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" data-dismiss="modal">Cancelar</button>
-                    <a href="#" id="btn-confirmar-eliminar-curso" class="btn btn-danger rounded-pill px-4 text-white font-weight-bold" style="background-color: #e53e3e; border-color: #e53e3e;">Eliminar</a>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal para Eliminar Categoría -->
-<div class="modal fade" id="modalEliminarCategoria" tabindex="-1" role="dialog" aria-labelledby="modalEliminarCategoriaLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered" role="document">
-        <div class="modal-content border-0 shadow-lg rounded-lg">
-            <div class="modal-header border-bottom-0 pb-0 pt-4 px-4" style="background-color: #fdf2f2;">
-                <div class="d-flex align-items-center">
-                    <div class="d-flex align-items-center justify-content-center rounded-circle p-2 mr-3 text-danger" style="width: 40px; height: 40px; background-color: #fde8e8;">
-                        <i class="fa fa-exclamation-triangle fa-lg"></i>
-                    </div>
-                    <h5 class="modal-title font-weight-bold text-danger" id="modalEliminarCategoriaLabel">Eliminar Categoría</h5>
-                </div>
-                <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body px-4 py-3" style="background-color: #fdf2f2;">
-                <p class="text-dark mb-3" style="font-size: 0.95rem;">
-                    ¿Está seguro de que desea eliminar la categoría <strong id="modal-categoria-nombre" class="text-danger"></strong>?
-                </p>
-                <div class="alert border border-danger bg-white text-danger rounded p-3 mb-4 small">
-                    <i class="fa fa-exclamation-triangle mr-1"></i>
-                    Atención: Esta categoría contiene <strong id="modal-categoria-tests" class="pl-1 pr-2">0 tests</strong> y <strong id="modal-categoria-preguntas" class="text-danger pl-1">0 preguntas</strong>. Todos los elementos asociados serán eliminados definitivamente.
-                </div>
-                <div class="d-flex justify-content-end">
-                    <button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" data-dismiss="modal">Cancelar</button>
-                    <a href="#" id="btn-confirmar-eliminar-categoria" class="btn btn-danger rounded-pill px-4 text-white font-weight-bold" style="background-color: #e53e3e; border-color: #e53e3e;">Eliminar</a>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-<!-- Modal para Eliminar Test -->
-<div class="modal fade" id="modalEliminarTest" tabindex="-1" role="dialog" aria-labelledby="modalEliminarTestLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered" role="document">
-        <div class="modal-content border-0 shadow-lg rounded-lg">
-            <div class="modal-header border-bottom-0 pb-0 pt-4 px-4" style="background-color: #fdf2f2;">
-                <div class="d-flex align-items-center">
-                    <div class="d-flex align-items-center justify-content-center rounded-circle p-2 mr-3 text-danger" style="width: 40px; height: 40px; background-color: #fde8e8;">
-                        <i class="fa fa-trash fa-lg"></i>
-                    </div>
-                    <h5 class="modal-title font-weight-bold text-danger" id="modalEliminarTestLabel">Eliminar Test</h5>
-                </div>
-                <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body px-4 py-3" style="background-color: #fdf2f2;">
-                <p class="text-dark mb-3" style="font-size: 0.95rem;">
-                    ¿Está seguro de que desea eliminar el test <strong id="modal-test-nombre" class="text-danger"></strong>?
-                </p>
-                <p class="text-muted small mb-4">
-                    El test se quitará de esta categoría y se moverá a la papelera del curso. Podrá restaurarlo más adelante si lo desea.
-                </p>
-                <div class="d-flex justify-content-end">
-                    <button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" data-dismiss="modal">Cancelar</button>
-                    <a href="#" id="btn-confirmar-eliminar-test" class="btn btn-danger rounded-pill px-4 text-white font-weight-bold" style="background-color: #e53e3e; border-color: #e53e3e;">Eliminar</a>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-<!-- Modal para Papelera del Curso -->
-<div class="modal fade" id="modalPapeleraCurso" tabindex="-1" role="dialog" aria-labelledby="modalPapeleraCursoLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
-        <div class="modal-content border-0 shadow-lg rounded-lg overflow-hidden">
-            <div class="modal-header border-bottom px-4 pt-4 pb-3" style="background-color: #f4fbf7;">
-                <div class="d-flex align-items-center w-100">
-                    <div class="d-flex align-items-center justify-content-center rounded p-2 mr-3 text-success" style="width: 42px; height: 42px; background-color: #e3f5ec;">
-                        <i class="fa fa-trash fa-lg"></i>
-                    </div>
-                    <div>
-                        <div class="d-flex align-items-center mb-1">
-                            <span class="text-uppercase text-success font-weight-bold mr-2" style="font-size: 11px; letter-spacing: 0.5px;">Papelera del Curso</span>
-                            <span class="badge badge-success px-2 py-1" style="font-size: 10px; background-color: #d1e7dd; color: #0f5132;" id="modal-badge-curso">DPP-2026</span>
-                        </div>
-                        <h5 class="modal-title font-weight-bold text-dark mb-0" id="modalPapeleraCursoLabel" style="font-size: 1.1rem;">Nombre del Curso</h5>
-                    </div>
-                </div>
-                <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body px-4 py-3 bg-white">
-                <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
-                    <small class="text-muted font-weight-bold" id="modal-trash-count">
-                        <i class="fa fa-exclamation-circle text-warning mr-1"></i> 0 tests reciclados en esta papelera
-                    </small>
-                    <a href="#" id="btn-vaciar-papelera" class="text-danger font-weight-bold small text-decoration-none">
-                        Vaciar Papelera
-                    </a>
-                </div>
-                <div id="modal-trash-tests-container" style="max-height: 350px; overflow-y: auto; padding-right: 4px;"></div>
-            </div>
-            <div class="modal-footer border-top bg-light px-4 py-3">
-                <button type="button" class="btn btn-light border rounded-pill px-4 text-dark font-weight-bold shadow-sm" data-dismiss="modal">Cerrar Papelera</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-    require(['jquery', 'core/modal_factory', 'core/str'], function($, ModalFactory, Str) {
-        $(document).ready(function() {
-            $(document).on('click', '.btn-abrir-importar', function(e) {
-                var categoryid = $(this).attr('data-categoryid');
-                $('#id_categoryid').val(categoryid);
-            });
-
-            $(document).on('click', '.btn-abrir-banco', function(e) {
-                var categoryid = $(this).attr('data-categoryid');
-                $('#id_bank_categoryid').val(categoryid);
-            });
-
-            $(document).on('click', '.btn-abrir-modal-curso', function(e) {
-                e.preventDefault();
-                var coursename = $(this).attr('data-coursename');
-                var testcount = $(this).attr('data-testcount');
-                var questioncount = $(this).attr('data-questioncount');
-                var deleteurl = $(this).attr('data-deleteurl');
-
-                $('#modal-curso-nombre').text('"' + coursename + '"');
-                $('#modal-curso-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
-                $('#modal-curso-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
-                $('#btn-confirmar-eliminar-curso').attr('href', deleteurl);
-
-                $('#modalEliminarCurso').modal('show');
-            });
-
-            $(document).on('click', '.btn-abrir-modal-categoria', function(e) {
-                e.preventDefault();
-                var catname = $(this).attr('data-catname');
-                var testcount = $(this).attr('data-testcount');
-                var questioncount = $(this).attr('data-questioncount');
-                var deleteurl = $(this).attr('data-deleteurl');
-
-                $('#modal-categoria-nombre').text('"' + catname + '"');
-                $('#modal-categoria-tests').text(testcount + (testcount == 1 ? ' test' : ' tests'));
-                $('#modal-categoria-preguntas').text(questioncount + (questioncount == 1 ? ' pregunta' : ' preguntas'));
-                $('#btn-confirmar-eliminar-categoria').attr('href', deleteurl);
-
-                $('#modalEliminarCategoria').modal('show');
-            });
-
-            $(document).on('click', '.btn-abrir-papelera', function(e) {
-                var coursename = $(this).attr('data-coursename');
-                var emptyurl = $(this).attr('data-emptyurl');
-                var testsRaw = $(this).attr('data-tests');
-                var tests = testsRaw ? JSON.parse(testsRaw) : [];
-
-                $('#modalPapeleraCursoLabel').text(coursename);
-
-                var html = '';
-                if (tests.length === 0) {
-                    html = '<p class="text-muted text-center py-3">La papelera de este curso está vacía.</p>';
-                } else {
-                    html = '<div class="mb-3 text-right"><a href="' + emptyurl + '" class="btn btn-outline-danger btn-sm rounded-pill"><i class="fa fa-trash"></i> Vaciar papelera</a></div>';
-                    html += '<ul class="list-group">';
-                    $.each(tests, function(i, t) {
-                        html += '<li class="list-group-item d-flex justify-content-between align-items-center">';
-                        html += '<div><strong>' + t.name + '</strong><br><small class="text-muted">' + t.questions + ' preguntas - Eliminado: ' + t.date + '</small></div>';
-                        html += '<a href="' + t.restoreurl + '" class="btn btn-success btn-sm rounded-pill text-white"><i class="fa fa-undo"></i> Restaurar</a>';
-                        html += '</li>';
-                    });
-                    html += '</ul>';
-                }
-                $('#modal-trash-tests-container').html(html);
-            });
-            $(document).on('click', '.btn-abrir-modal-test', function(e) {
-                e.preventDefault();
-                var testname = $(this).attr('data-testname');
-                var deleteurl = $(this).attr('data-deleteurl');
-
-                $('#modal-test-nombre').text('"' + testname + '"');
-                $('#btn-confirmar-eliminar-test').attr('href', deleteurl);
-
-                $('#modalEliminarTest').modal('show');
-            });
-        });
+<?php
+// El JS debe registrarse con js_amd_inline(): RequireJS se carga dentro de $OUTPUT->footer(),
+// así que un <script>require(...)</script> escrito antes del footer se ejecuta cuando `require`
+// todavía no existe y ningún manejador llega a engancharse.
+$PAGE->requires->js_amd_inline("
+require(['jquery'], function($) {
+    $(document).on('click', '.btn-abrir-importar', function() {
+        $('#id_categoryid').val($(this).attr('data-categoryid'));
     });
-</script>
-<?php echo $OUTPUT->footer(); ?>
+
+    $(document).on('click', '.btn-abrir-banco', function() {
+        $('#id_bank_categoryid').val($(this).attr('data-categoryid'));
+    });
+
+    // Tras mover un test a la papelera volvemos abriéndola para que se vea ya reciclado.
+    // El plugin jQuery .modal() lo aporta el tema (Boost lo carga por AMD), así que
+    // esperamos a que esté disponible en lugar de asumir un orden de carga concreto.
+    var autoOpenPapelera = " . (int)$autoopenpapelera . ";
+    if (autoOpenPapelera > 0) {
+        var intentos = 0;
+        var abrir = function() {
+            var \$modal = $('#modalPapelera-' + autoOpenPapelera);
+            if (!\$modal.length) {
+                return;
+            }
+            if (typeof \$modal.modal === 'function') {
+                \$modal.modal('show');
+            } else if (intentos++ < 40) {
+                window.setTimeout(abrir, 100);
+            }
+        };
+        abrir();
+    }
+});
+");
+
+echo $OUTPUT->footer();
+?>
