@@ -596,7 +596,7 @@ echo $OUTPUT->header();
         <h2 class="testmanager-header-title">Banco de <span class="text-accent pl-1 pr-1">Preguntas</span></h2>
         <div class="d-flex align-items-center">
             <form method="get" action="" class="mb-0 mr-3">
-                <div class="bg-white border rounded-pill px-3 py-1 shadow-sm text-muted small d-flex align-items-center">
+                <div class="bg-white border rounded px-3 py-1 shadow-sm text-muted small d-flex align-items-center">
                     <i class="fa fa-filter text-info mr-2"></i> FILTRO CURSOS:
                     <select name="filtercourse" class="border-0 bg-transparent text-dark font-weight-bold ml-1 shadow-none" style="outline: none; cursor: pointer;" onchange="this.form.submit()">
                         <option value="0">Todos los cursos</option>
@@ -610,7 +610,7 @@ echo $OUTPUT->header();
                     </select>
                 </div>
             </form>
-            <button class="btn btn-success rounded-pill px-4 text-white font-weight-bold" type="button" data-toggle="modal" data-target="#modalCrearCurso">
+            <button class="btn btn-success rounded px-4 text-white font-weight-bold" type="button" data-toggle="modal" data-target="#modalCrearCurso">
                 <i class="fa fa-plus mr-1"></i> Crear Curso
             </button>
         </div>
@@ -619,14 +619,14 @@ echo $OUTPUT->header();
     <!-- Barra de Búsqueda y Botón Nueva Categoría -->
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
         <form method="get" action="" class="mb-0" style="width: 100%; max-width: 420px;">
-            <div class="input-group bg-white rounded-pill border shadow-sm px-3 py-1">
+            <div class="input-group bg-white rounded border shadow-sm px-3 py-1">
                 <div class="input-group-prepend align-items-center border-0 bg-transparent">
                     <i class="fa fa-search text-muted"></i>
                 </div>
                 <input type="text" name="search" class="form-control border-0 shadow-none" placeholder="Filtrar tests en las categorías..." value="<?php p($search); ?>">
             </div>
         </form>
-        <button class="btn btn-light bg-white border rounded-pill px-4 shadow-sm text-dark font-weight-bold" type="button" data-toggle="modal" data-target="#modalNuevaCategoria">
+        <button class="btn btn-light bg-white border rounde px-4 shadow-sm text-dark font-weight-bold" type="button" data-toggle="modal" data-target="#modalNuevaCategoria">
             <i class="fa fa-folder-plus text-info mr-1"></i> Nueva Categoría
         </button>
     </div>
@@ -710,7 +710,7 @@ echo $OUTPUT->header();
             echo '</div>';
             echo '<div>';
             echo '<h5 class="mb-0 font-weight-bold text-dark">' . format_string($course->name) . ' <span class="badge badge-secondary ml-2">' . $total_tests . ' tests</span></h5>';
-            echo '<small class="text-muted">Total: <strong>' . $total_questions . ' preguntas</strong></small>';
+            echo '<small class="text-muted">Total: <strong class="ml-1">' . $total_questions . ' preguntas</strong></small>';
             echo '</div></div>';
 
             echo '<div class="d-flex align-items-center">';
@@ -729,7 +729,7 @@ echo $OUTPUT->header();
                 'sesskey'  => sesskey(),
             ]);
 
-            echo '<button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 mr-3" ' .
+            echo '<button type="button" class="btn btn-outline-success btn-sm rounded px-3 mr-3" ' .
                 'style="text-transform: none; font-size: 12px;" ' .
                 'data-toggle="modal" data-target="#modalPapelera-' . $course->id . '">' .
                 '<i class="fa fa-trash mr-1"></i> Papelera del Curso ' .
@@ -752,9 +752,9 @@ echo $OUTPUT->header();
                 'modalEliminarCurso-' . $course->id,
                 'Eliminar Curso',
                 'fa-exclamation-triangle',
-                '¿Está seguro de que desea eliminar el curso <strong class="text-danger">"' . s($course->name) . '"</strong>?',
-                'Atención: este curso contiene <strong>' . $total_tests . ' tests activos</strong> con <strong>' .
-                    $total_questions . ' preguntas</strong> y <strong>' . $trashedcount .
+                '¿Está seguro de que desea eliminar el curso <strong class="text-danger ml-1">"' . s($course->name) . '"</strong>?',
+                'Atención: este curso contiene <strong class="ml-1">' . $total_tests . ' tests activos</strong> con <strong class="ml-1">' .
+                    $total_questions . ' preguntas</strong> y <strong class="ml-1">' . $trashedcount .
                     ' tests en la papelera</strong>. Todas sus categorías, tests y los cuestionarios de Moodle ' .
                     'asociados serán eliminados definitivamente.',
                 $deletecourseurl);
@@ -810,8 +810,11 @@ echo $OUTPUT->header();
                 echo '<div class="d-flex align-items-center text-dark font-weight-bold" style="font-size: 0.9rem;">' .
                     format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' .
                     $cat_tests_count . ' tests</span></div>';
-                echo '<div class="testmanager-category-meta">Perteneciente a <strong>' . format_string($course->name) .
-                    '</strong> &bull; Total: <strong>' . $cat_questions_count . ' preguntas</strong></div>';
+                echo '<div class="testmanager-category-meta">' .
+                    '<span>Perteneciente a: <strong class="ml-1">' . format_string($course->name) . '</strong></span>' .
+                    '<span class="mx-2">&bull;</span>' .
+                    '<span>Total: <strong class="ml-1">' . $cat_questions_count . ' preguntas</strong></span>' .
+                    '</div>';
                 echo '</div></div>';
 
                 echo '<a href="#" class="text-muted" data-toggle="modal" data-target="#modalEliminarCategoria-' . $cat->id . '" ' .
@@ -821,8 +824,8 @@ echo $OUTPUT->header();
                     'modalEliminarCategoria-' . $cat->id,
                     'Eliminar Categoría',
                     'fa-exclamation-triangle',
-                    '¿Está seguro de que desea eliminar la categoría <strong class="text-danger">"' . s($cat->name) . '"</strong>?',
-                    'Atención: esta categoría contiene <strong>' . $cat_total_tests . ' tests</strong> y <strong>' .
+                    '¿Está seguro de que desea eliminar la categoría <strong class="text-danger ml-1">"' . s($cat->name) . '"</strong>?',
+                    'Atención: esta categoría contiene <strong class="ml-1">' . $cat_total_tests . ' tests</strong> y <strong class="ml-1">' .
                         $cat_questions_count . ' preguntas</strong>. La categoría, sus tests y los cuestionarios de ' .
                         'Moodle asociados serán eliminados definitivamente.',
                     $deletecaturl);
@@ -879,10 +882,10 @@ echo $OUTPUT->header();
                             'modalEliminarTest-' . $t->id,
                             'Eliminar Test',
                             'fa-trash',
-                            '¿Está seguro de que desea eliminar el test <strong class="text-danger">"' . s($t->name) . '"</strong>?',
+                            '¿Está seguro de que desea eliminar el test <strong class="text-danger ml-1">"' . s($t->name) . '"</strong>?',
                             null,
                             $deleteurl,
-                            'El test saldrá de la categoría "' . s($cat->name) . '" y se moverá a la <strong>Papelera del curso ' .
+                            'El test saldrá de la categoría "' . s($cat->name) . '" y se moverá a la <strong class="ml-1">Papelera del curso ' .
                                 s($course->name) . '</strong>, donde conservará sus ' . $t->question_count .
                                 ' preguntas y podrá restaurarlo o eliminarlo definitivamente.');
                         echo '</div>';
@@ -899,8 +902,8 @@ echo $OUTPUT->header();
             echo '<small class="text-muted" style="text-transform: none;"><i class="fa fa-grip-vertical mr-1"></i> Arrastre un test para reordenar o mover</small>';
             echo '<div>';
             if ($firstcatid) {
-                echo '<button class="btn btn-outline-secondary btn-sm rounded-pill px-3 mr-2 bg-white btn-abrir-importar" type="button" data-toggle="modal" data-target="#modalImportarTest" data-categoryid="' . $firstcatid . '" style="text-transform: none; font-size: 12px;"><i class="fa fa-upload mr-1"></i> Importar Test CSV</button>';
-                echo '<button class="btn btn-outline-info btn-sm rounded-pill px-3 bg-white btn-abrir-banco" type="button" data-toggle="modal" data-target="#modalImportarBanco" data-categoryid="' . $firstcatid . '" style="text-transform: none; font-size: 12px;"><i class="fa fa-database mr-1"></i> Importar desde Banco</button>';
+                echo '<button class="btn btn-outline-secondary rounded px-4 mr-2 bg-white font-weight-bold btn-abrir-importar" type="button" data-toggle="modal" data-target="#modalImportarTest" data-categoryid="' . $firstcatid . '" style="text-transform: none;"><i class="fa fa-upload mr-1"></i> Importar Test CSV</button>';
+                echo '<button class="btn btn-outline-info rounded px-4 bg-white font-weight-bold btn-abrir-banco" type="button" data-toggle="modal" data-target="#modalImportarBanco" data-categoryid="' . $firstcatid . '" style="text-transform: none;"><i class="fa fa-database mr-1"></i> Importar desde Banco</button>';
             }
             echo '</div>';
             echo '</div>';

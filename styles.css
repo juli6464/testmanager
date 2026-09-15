@@ -90,9 +90,20 @@ body {
 }
 
 .testmanager-category-block .testmanager-category-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     font-size: 12px;
     color: #8792a2;
-    margin-top: 2px;
+    margin-top: 4px;
+}
+
+/* Los valores dinámicos (nombres, contadores) siempre en negrita separados de su
+   etiqueta por un pequeño margen, para que nunca queden pegados visualmente. */
+.testmanager-category-meta strong,
+.testmanager-course-block strong,
+.modal-body strong {
+    margin-right: 2px;
 }
 
 /* Elementos de test en filas compactas */

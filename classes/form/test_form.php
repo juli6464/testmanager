@@ -27,7 +27,7 @@ class test_form extends \moodleform {
 
         // Selector explícito para elegir la categoría de destino al importar
         $mform->addElement('select', 'categoryid', 'Categoría de destino', $catoptions, [
-            'class' => 'form-control rounded-pill px-3 py-2'
+            'class' => 'form-control rounded px-3 py-2'
         ]);
         $mform->setType('categoryid', PARAM_INT);
         $mform->addRule('categoryid', 'Debe seleccionar una categoría', 'required', null, 'client');
@@ -35,7 +35,7 @@ class test_form extends \moodleform {
         // Nombre del Test con estilo moderno
         $mform->addElement('text', 'name', 'Nombre del Test', [
             'placeholder' => 'Ej. Test Parcial - Módulo Especial',
-            'class' => 'form-control rounded-pill px-3 py-2'
+            'class' => 'form-control rounded px-3 py-2'
         ]);
         $mform->setType('name', PARAM_TEXT);
         $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');

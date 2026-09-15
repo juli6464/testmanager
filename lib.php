@@ -135,9 +135,9 @@ function local_testmanager_render_confirm_modal($id, $title, $icon, $question, $
             '<i class="fa fa-exclamation-triangle mr-1"></i> ' . $warning . '</div>';
     }
     $html .= '<div class="d-flex justify-content-end">';
-    $html .= '<button type="button" class="btn btn-light border rounded-pill px-4 mr-2 text-dark font-weight-bold" ' .
+    $html .= '<button type="button" class="btn btn-light border rounded px-4 mr-2 text-dark font-weight-bold" ' .
         'data-dismiss="modal">Cancelar</button>';
-    $html .= '<a href="' . $actionurl->out(false) . '" class="btn btn-danger rounded-pill px-4 text-white font-weight-bold" ' .
+    $html .= '<a href="' . $actionurl->out(false) . '" class="btn btn-danger rounded px-4 text-white font-weight-bold" ' .
         'style="background-color: #e53e3e; border-color: #e53e3e;">Eliminar</a>';
     $html .= '</div>';
     $html .= '</div></div></div></div>';
@@ -205,9 +205,9 @@ function local_testmanager_render_trash_modal($course, array $trashedtests, $tra
                 $test->question_count . ' preguntas</span>' .
                 '<small class="text-muted">Creado: ' . userdate($test->timecreated, get_string('strftimedate')) . '</small></div>';
             $html .= '<div class="d-flex align-items-center">';
-            $html .= '<a href="' . $restoreurl->out(false) . '" class="btn btn-success btn-sm rounded-pill text-white mr-2">' .
+            $html .= '<a href="' . $restoreurl->out(false) . '" class="btn btn-success btn-sm rounded text-white mr-2">' .
                 '<i class="fa fa-undo"></i> Restaurar</a>';
-            $html .= '<a href="' . $purgeurl->out(false) . '" class="btn btn-outline-danger btn-sm rounded-pill" ' .
+            $html .= '<a href="' . $purgeurl->out(false) . '" class="btn btn-outline-danger btn-sm rounded" ' .
                 'title="Eliminar definitivamente"><i class="fa fa-times"></i></a>';
             $html .= '</div></li>';
         }
@@ -216,7 +216,7 @@ function local_testmanager_render_trash_modal($course, array $trashedtests, $tra
     $html .= '</div></div>';
 
     $html .= '<div class="modal-footer border-top bg-light px-4 py-3">';
-    $html .= '<button type="button" class="btn btn-light border rounded-pill px-4 text-dark font-weight-bold shadow-sm" ' .
+    $html .= '<button type="button" class="btn btn-light border rounded px-4 text-dark font-weight-bold shadow-sm" ' .
         'data-dismiss="modal">Cerrar Papelera</button>';
     $html .= '</div>';
 
@@ -313,7 +313,7 @@ function local_testmanager_render_bank_modal_body() {
     $tests = local_testmanager_search_bank_tests('', 0, 0);
 
     $html  = '<input type="hidden" id="id_bank_categoryid" value="0">';
-    $html .= '<div class="input-group bg-white rounded-pill border shadow-sm px-3 py-1 mb-3">';
+    $html .= '<div class="input-group bg-white rounded border shadow-sm px-3 py-1 mb-3">';
     $html .= '<div class="input-group-prepend align-items-center border-0 bg-transparent"><i class="fa fa-search text-muted"></i></div>';
     $html .= '<input type="text" id="bank-search-input" class="form-control border-0 shadow-none" ' .
         'placeholder="Busca por nombre de test o palabra clave...">';
@@ -322,7 +322,7 @@ function local_testmanager_render_bank_modal_body() {
     $html .= '<div class="row mb-3">';
     $html .= '<div class="col-md-6">';
     $html .= '<label class="small font-weight-bold text-muted"><i class="fa fa-book mr-1"></i> FILTRO CURSO</label>';
-    $html .= '<select id="bank-filter-course" class="custom-select rounded-pill border shadow-sm px-3" style="font-size: 13px;">';
+    $html .= '<select id="bank-filter-course" class="custom-select rounded border shadow-sm px-3" style="font-size: 13px;">';
     $html .= '<option value="0">Todos los Cursos</option>';
     foreach ($courses as $c) {
         $html .= '<option value="' . $c->id . '">' . s($c->name) . '</option>';
@@ -331,7 +331,7 @@ function local_testmanager_render_bank_modal_body() {
 
     $html .= '<div class="col-md-6">';
     $html .= '<label class="small font-weight-bold text-muted"><i class="fa fa-layer-group mr-1"></i> FILTRO CATEGORÍA</label>';
-    $html .= '<select id="bank-filter-category" class="custom-select rounded-pill border shadow-sm px-3" style="font-size: 13px;">';
+    $html .= '<select id="bank-filter-category" class="custom-select rounded border shadow-sm px-3" style="font-size: 13px;">';
     $html .= '<option value="0">Todas las Categorías</option>';
     foreach ($categories as $cat) {
         $html .= '<option value="' . $cat->id . '" data-courseid="' . $cat->courseid . '">' . s($cat->name) . '</option>';
@@ -352,9 +352,9 @@ function local_testmanager_render_bank_modal_body() {
     $html .= '<small class="text-muted font-weight-bold" id="bank-selected-counter">0 tests seleccionados</small>';
     $html .= '<div>';
     $html .= '<button type="button" class="btn btn-light text-dark px-4 mr-2" data-dismiss="modal" ' .
-        'style="border-radius: 50rem; border: 1px solid #ced4da; font-size: 13px;">Cancelar</button>';
+        'style="border: 1px solid #ced4da; font-size: 13px;">Cancelar</button>';
     $html .= '<button type="button" id="bank-import-btn" class="btn text-white font-weight-bold px-4" disabled ' .
-        'style="background-color: #00a2ed; border-radius: 50rem; border: none; font-size: 13px;">Importar</button>';
+        'style="background-color: #00a2ed; border: none; font-size: 13px;">Importar</button>';
     $html .= '</div></div>';
 
     return $html;
