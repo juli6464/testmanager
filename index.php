@@ -37,6 +37,18 @@ if (!$dbman->table_exists('local_testmanager_courses')) {
     if (!$dbman->field_exists($table_tests, $field_origcat)) {
         $dbman->add_field($table_tests, $field_origcat);
     }
+
+    // sortorder es necesario para poder reordenar tests y categorías con drag & drop.
+    $field_test_sort = new xmldb_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    if (!$dbman->field_exists($table_tests, $field_test_sort)) {
+        $dbman->add_field($table_tests, $field_test_sort);
+    }
+
+    $table_categories = new xmldb_table('local_testmanager_categories');
+    $field_cat_sort = new xmldb_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    if (!$dbman->field_exists($table_categories, $field_cat_sort)) {
+        $dbman->add_field($table_categories, $field_cat_sort);
+    }
 }
 
 // Auto-reparación de cuestionarios huérfanos o con referencias erróneas previas
@@ -669,7 +681,9 @@ echo $OUTPUT->header();
     } else {
         echo '<div class="testmanager-list-panel">';
         foreach ($courses as $course) {
-            $categories = $DB->get_records_sql("SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0", [$course->id]);
+            $categories = $DB->get_records_sql(
+                "SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0 ORDER BY sortorder ASC, id ASC",
+                [$course->id]);
             // Todo curso lógico debe tener siempre su papelera; se crea si falta (cursos antiguos).
             $trashcat = local_testmanager_get_trash_category($course->id);
 
@@ -729,9 +743,11 @@ echo $OUTPUT->header();
                 'sesskey'  => sesskey(),
             ]);
 
-            echo '<button type="button" class="btn btn-outline-success btn-sm rounded px-3 mr-3" ' .
+            echo '<button type="button" class="btn btn-outline-success btn-sm rounded px-3 mr-3 testmanager-trash-dropzone" ' .
                 'style="text-transform: none; font-size: 12px;" ' .
-                'data-toggle="modal" data-target="#modalPapelera-' . $course->id . '">' .
+                'data-courseid="' . $course->id . '" ' .
+                'data-toggle="modal" data-target="#modalPapelera-' . $course->id . '" ' .
+                'title="Arrastra aquí un test para enviarlo a la papelera">' .
                 '<i class="fa fa-trash mr-1"></i> Papelera del Curso ' .
                 '<span class="badge badge-light border ml-1">' . $trashedcount . '</span></button>';
 
@@ -774,6 +790,8 @@ echo $OUTPUT->header();
                     $cat_test_params['search'] = '%' . $DB->sql_like_escape($search) . '%';
                 }
 
+                $cat_test_sql .= " ORDER BY sortorder ASC, id ASC";
+
                 $tests = $DB->get_records_sql($cat_test_sql, $cat_test_params);
 
                 if (!empty($search) && empty($tests)) {
@@ -799,10 +817,11 @@ echo $OUTPUT->header();
                     'sesskey' => sesskey()
                 ]);
 
-                echo '<div class="mb-4">';
-                echo '<div class="testmanager-category-block">';
+                echo '<div class="mb-4 testmanager-category-section" data-catid="' . $cat->id . '" data-courseid="' . $course->id . '">';
+                echo '<div class="testmanager-category-block" draggable="true" title="Arrastra para reordenar la categoría">';
                 echo '<div class="d-flex justify-content-between align-items-center">';
                 echo '<div class="d-flex align-items-center">';
+                echo '<i class="fa fa-grip-vertical text-muted mr-2" style="cursor: grab; font-size: 0.85rem;"></i>';
                 echo '<div class="testmanager-icon-box testmanager-icon-box-sm mr-3" style="background-color:#fff7ed; color:#f59e0b;">';
                 echo '<i class="fa fa-folder-open"></i>';
                 echo '</div>';
@@ -832,6 +851,8 @@ echo $OUTPUT->header();
                 echo '</div>'; // .d-flex header
                 echo '</div>'; // .testmanager-category-block
 
+                echo '<div class="testmanager-tests-list" data-categoryid="' . $cat->id . '" data-courseid="' . $course->id . '">';
+
                 if (empty($tests)) {
                     echo '<div class="text-muted pl-4 mb-2 font-italic small">No hay tests en esta categoría.</div>';
                 } else {
@@ -852,7 +873,8 @@ echo $OUTPUT->header();
 
                         $nativeurl = $cm ? new moodle_url('/mod/quiz/view.php', ['id' => $cm->id]) : '#';
 
-                        echo '<div class="testmanager-item ml-3" draggable="true">';
+                        echo '<div class="testmanager-item ml-3" draggable="true" data-testid="' . $t->id .
+                            '" data-categoryid="' . $cat->id . '">';
                         echo '<div class="d-flex align-items-center">';
                         echo '<i class="fa fa-grip-vertical text-muted mr-3" style="cursor: grab; font-size: 0.85rem;"></i>';
                         echo '<div class="testmanager-icon-box testmanager-icon-box-sm mr-3">';
@@ -892,7 +914,8 @@ echo $OUTPUT->header();
                         echo '</div>';
                     }
                 }
-                echo '</div>';
+                echo '</div>'; // .testmanager-tests-list
+                echo '</div>'; // .mb-4.testmanager-category-section
             }
 
             $firstcat = reset($categories);
@@ -1021,6 +1044,201 @@ $PAGE->requires->js_amd_inline("
 require(['jquery'], function($) {
     $(document).on('click', '.btn-abrir-importar', function() {
         $('#id_categoryid').val($(this).attr('data-categoryid'));
+    });
+
+    // --- Drag & drop: reordenar tests y categorías, y enviar tests a la papelera -------
+    var dndDragType = null;       // 'test' | 'category'
+    var dndDragId = null;
+    var dndDragScopeId = null;    // tests: id de su categoría; categorías: id de su curso
+
+    var clearDropIndicators = function() {
+        $('.testmanager-drag-over-top, .testmanager-drag-over-bottom')
+            .removeClass('testmanager-drag-over-top testmanager-drag-over-bottom');
+        $('.testmanager-drop-ready').removeClass('testmanager-drop-ready');
+    };
+
+    var persistTestOrder = function(categoryid) {
+        var ids = $('.testmanager-tests-list[data-categoryid=\"' + categoryid + '\"] .testmanager-item').map(function() {
+            return $(this).attr('data-testid');
+        }).get();
+        if (!ids.length) {
+            return;
+        }
+        $.ajax({
+            url: M.cfg.wwwroot + '/local/testmanager/ajax/reorder_tests.php',
+            method: 'POST',
+            data: {order: JSON.stringify(ids), categoryid: categoryid, sesskey: M.cfg.sesskey},
+            dataType: 'json'
+        });
+    };
+
+    var persistCategoryOrder = function(courseid) {
+        var ids = $('#courseBody-' + courseid + ' > .testmanager-category-section').map(function() {
+            return $(this).attr('data-catid');
+        }).get();
+        if (!ids.length) {
+            return;
+        }
+        $.ajax({
+            url: M.cfg.wwwroot + '/local/testmanager/ajax/reorder_categories.php',
+            method: 'POST',
+            data: {order: JSON.stringify(ids), courseid: courseid, sesskey: M.cfg.sesskey},
+            dataType: 'json'
+        });
+    };
+
+    // Reordenar tests: arrastrando una fila sobre otra de su MISMA categoría.
+    $(document).on('dragstart', '.testmanager-item', function(e) {
+        var row = $(this);
+        dndDragType = 'test';
+        dndDragId = row.attr('data-testid');
+        dndDragScopeId = row.attr('data-categoryid');
+        e.originalEvent.dataTransfer.effectAllowed = 'move';
+        e.originalEvent.dataTransfer.setData('text/plain', dndDragId);
+        window.setTimeout(function() { row.addClass('testmanager-dragging'); }, 0);
+    });
+
+    $(document).on('dragend', '.testmanager-item', function() {
+        $(this).removeClass('testmanager-dragging');
+        clearDropIndicators();
+        if (dndDragType === 'test' && dndDragScopeId) {
+            persistTestOrder(dndDragScopeId);
+        }
+        dndDragType = null;
+        dndDragId = null;
+        dndDragScopeId = null;
+    });
+
+    $(document).on('dragover', '.testmanager-item', function(e) {
+        if (dndDragType !== 'test') {
+            return;
+        }
+        var target = $(this);
+        if (target.attr('data-testid') === dndDragId || target.attr('data-categoryid') !== dndDragScopeId) {
+            return;
+        }
+        e.preventDefault();
+        e.originalEvent.dataTransfer.dropEffect = 'move';
+
+        var rect = this.getBoundingClientRect();
+        var before = (e.originalEvent.clientY - rect.top) < (rect.height / 2);
+        clearDropIndicators();
+        target.addClass(before ? 'testmanager-drag-over-top' : 'testmanager-drag-over-bottom');
+
+        var draggingRow = $('.testmanager-item[data-testid=\"' + dndDragId + '\"]');
+        if (before) {
+            target.before(draggingRow);
+        } else {
+            target.after(draggingRow);
+        }
+    });
+
+    $(document).on('drop', '.testmanager-item', function(e) {
+        if (dndDragType === 'test') {
+            e.preventDefault();
+        }
+    });
+
+    // Enviar un test a la papelera del curso soltándolo sobre el botón 'Papelera del Curso'.
+    $(document).on('dragenter dragover', '.testmanager-trash-dropzone', function(e) {
+        if (dndDragType !== 'test') {
+            return;
+        }
+        e.preventDefault();
+        e.originalEvent.dataTransfer.dropEffect = 'move';
+        $(this).addClass('testmanager-drop-ready');
+    });
+
+    $(document).on('dragleave', '.testmanager-trash-dropzone', function() {
+        $(this).removeClass('testmanager-drop-ready');
+    });
+
+    $(document).on('drop', '.testmanager-trash-dropzone', function(e) {
+        if (dndDragType !== 'test') {
+            return;
+        }
+        e.preventDefault();
+        var zone = $(this).removeClass('testmanager-drop-ready');
+        var testid = dndDragId;
+        var courseid = zone.attr('data-courseid');
+        var row = $('.testmanager-item[data-testid=\"' + testid + '\"]');
+        // El test se va a la papelera: al soltar aquí ya no hay que reordenar su categoría de origen.
+        dndDragType = null;
+        $.ajax({
+            url: M.cfg.wwwroot + '/local/testmanager/ajax/move_trash.php',
+            method: 'POST',
+            data: {courseid: courseid, testid: testid, sesskey: M.cfg.sesskey},
+            dataType: 'json'
+        }).done(function(response) {
+            if (response && response.status === 'success') {
+                row.fadeOut(150, function() { window.location.reload(); });
+            } else {
+                require(['core/notification'], function(Notification) {
+                    Notification.addNotification({
+                        message: (response && response.message) ? response.message : 'No se pudo mover el test a la papelera.',
+                        type: 'error'
+                    });
+                });
+            }
+        }).fail(function() {
+            require(['core/notification'], function(Notification) {
+                Notification.addNotification({message: 'Error de comunicación al mover el test.', type: 'error'});
+            });
+        });
+    });
+
+    // Reordenar categorías: se arrastra desde la cabecera (asa), moviendo toda la sección.
+    $(document).on('dragstart', '.testmanager-category-block', function(e) {
+        e.stopPropagation();
+        var block = $(this);
+        var section = block.closest('.testmanager-category-section');
+        dndDragType = 'category';
+        dndDragId = section.attr('data-catid');
+        dndDragScopeId = section.attr('data-courseid');
+        e.originalEvent.dataTransfer.effectAllowed = 'move';
+        e.originalEvent.dataTransfer.setData('text/plain', dndDragId);
+        window.setTimeout(function() { section.addClass('testmanager-dragging'); }, 0);
+    });
+
+    $(document).on('dragend', '.testmanager-category-block', function() {
+        $(this).closest('.testmanager-category-section').removeClass('testmanager-dragging');
+        clearDropIndicators();
+        if (dndDragType === 'category' && dndDragScopeId) {
+            persistCategoryOrder(dndDragScopeId);
+        }
+        dndDragType = null;
+        dndDragId = null;
+        dndDragScopeId = null;
+    });
+
+    $(document).on('dragover', '.testmanager-category-section', function(e) {
+        if (dndDragType !== 'category') {
+            return;
+        }
+        var target = $(this);
+        if (target.attr('data-catid') === dndDragId || target.attr('data-courseid') !== dndDragScopeId) {
+            return;
+        }
+        e.preventDefault();
+        e.originalEvent.dataTransfer.dropEffect = 'move';
+
+        var rect = this.getBoundingClientRect();
+        var before = (e.originalEvent.clientY - rect.top) < (rect.height / 2);
+        clearDropIndicators();
+        target.addClass(before ? 'testmanager-drag-over-top' : 'testmanager-drag-over-bottom');
+
+        var draggingSection = $('.testmanager-category-section[data-catid=\"' + dndDragId + '\"]');
+        if (before) {
+            target.before(draggingSection);
+        } else {
+            target.after(draggingSection);
+        }
+    });
+
+    $(document).on('drop', '.testmanager-category-section', function(e) {
+        if (dndDragType === 'category') {
+            e.preventDefault();
+        }
     });
 
     // --- Importar Test desde Banco de Preguntas ---------------------------------------

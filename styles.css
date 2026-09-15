@@ -154,6 +154,39 @@ body {
     font-size: 13px;
 }
 
+/* Drag & drop: reordenar tests/categorías y enviar tests a la papelera arrastrando */
+.testmanager-category-block {
+    cursor: grab;
+}
+
+.testmanager-item.testmanager-dragging,
+.testmanager-category-block.testmanager-dragging {
+    opacity: 0.4;
+}
+
+.testmanager-item.testmanager-drag-over-top {
+    border-top: 2px solid #6366f1;
+}
+
+.testmanager-item.testmanager-drag-over-bottom {
+    border-bottom: 2px solid #6366f1;
+}
+
+.testmanager-category-section.testmanager-drag-over-top {
+    box-shadow: inset 0 2px 0 0 #6366f1;
+}
+
+.testmanager-category-section.testmanager-drag-over-bottom {
+    box-shadow: inset 0 -2px 0 0 #6366f1;
+}
+
+.testmanager-trash-dropzone.testmanager-drop-ready {
+    background-color: #17a2b8 !important;
+    color: #ffffff !important;
+    border-color: #17a2b8 !important;
+    box-shadow: 0 0 0 3px rgba(23, 162, 184, .25);
+}
+
 /* Estilizar los botones generados por add_action_buttons dentro del modal de curso */
 #modalCrearCurso .modal-body .fitem_actionbuttons .fgroup {
     display: flex !important;

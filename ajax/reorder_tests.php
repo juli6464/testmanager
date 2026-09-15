@@ -11,6 +11,7 @@ require_once(__DIR__ . '/../../../config.php');
 require_login();
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url('/local/testmanager/ajax/reorder_tests.php');
+require_capability('local/testmanager:manage', context_system::instance());
 
 header('Content-Type: application/json');
 

@@ -24,6 +24,7 @@ function xmldb_local_testmanager_install() {
     $table2->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $table2->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
     $table2->add_field('is_trash', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0');
+    $table2->add_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
     $table2->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $table2->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
     $table2->add_key('fk_course', XMLDB_KEY_FOREIGN, ['courseid'], 'local_testmanager_courses', ['id']);
@@ -40,6 +41,7 @@ function xmldb_local_testmanager_install() {
     $table3->add_field('quizid', XMLDB_TYPE_INTEGER, '10', null, null, null, '0');
     $table3->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
     $table3->add_field('question_count', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    $table3->add_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
     $table3->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $table3->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
     $table3->add_key('fk_category', XMLDB_KEY_FOREIGN, ['categoryid'], 'local_testmanager_categories', ['id']);
