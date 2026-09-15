@@ -1,42 +1,105 @@
 body {
-    background-color: #f7f9fc;
+    background-color: #f6f7fb;
     font-size: 14px;
 }
 
 .testmanager-header-title {
-    font-size: 1.5rem;
-    font-weight: 700;
+    font-size: 1.9rem;
+    font-weight: 800;
     color: #1a202c;
+    letter-spacing: -0.02em;
 }
 
-.testmanager-course-card {
+.testmanager-header-title .text-accent {
+    color: #6366f1;
+}
+
+/* Panel que envuelve todo el listado de cursos: un único contenedor con divisores
+   finos entre bloques, en lugar de una tarjeta con sombra por curso. */
+.testmanager-list-panel {
     background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 16px;
-    margin-bottom: 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    border: 1px solid #e9ebf3;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03);
 }
 
-/* Control estricto de iconos y títulos de carpetas */
-.testmanager-course-card .fa-folder {
-    font-size: 1.25rem !important;
+.testmanager-course-block {
+    padding: 22px 24px;
+    border-bottom: 1px solid #eef0f6;
 }
 
-.testmanager-course-card h5 {
+.testmanager-course-block:last-child {
+    border-bottom: none;
+}
+
+.testmanager-course-block h5 {
     font-size: 1rem !important;
-    font-weight: 600;
+    font-weight: 700;
+    text-transform: none !important;
 }
 
-.testmanager-course-card small {
+.testmanager-course-block > small,
+.testmanager-course-block small.testmanager-block-meta {
     font-size: 85%;
+}
+
+.testmanager-icon-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    border-radius: 10px;
+    background-color: #eef2ff;
+    color: #6366f1;
+}
+
+.testmanager-icon-box.testmanager-icon-box-sm {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    border-radius: 8px;
+}
+
+/* Chevron de colapsar/expandir un curso */
+.testmanager-collapse-toggle {
+    background: none;
+    border: none;
+    color: #a0aec0;
+    padding: 4px 8px 4px 0;
+    cursor: pointer;
+}
+
+.testmanager-collapse-toggle .fa-chevron-down {
+    transition: transform .2s ease;
+}
+
+.testmanager-collapse-toggle[aria-expanded="false"] .fa-chevron-down {
+    transform: rotate(-90deg);
+}
+
+/* Bloque de categoría: fila destacada con fondo suave para separarla de sus tests */
+.testmanager-category-block {
+    background-color: #fafbfd;
+    border: 1px solid #eef0f6;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+}
+
+.testmanager-category-block .testmanager-category-meta {
+    font-size: 12px;
+    color: #8792a2;
+    margin-top: 2px;
 }
 
 /* Elementos de test en filas compactas */
 .testmanager-item {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 10px 14px;
     margin-bottom: 8px;
     display: flex;

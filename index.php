@@ -593,7 +593,7 @@ echo $OUTPUT->header();
 <div class="container-fluid px-4 py-3">
     <!-- Cabecera Superior -->
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="testmanager-header-title">Banco de <span class="text-primary pl-1 pr-1">Preguntas</span></h2>
+        <h2 class="testmanager-header-title">Banco de <span class="text-accent pl-1 pr-1">Preguntas</span></h2>
         <div class="d-flex align-items-center">
             <form method="get" action="" class="mb-0 mr-3">
                 <div class="bg-white border rounded-pill px-3 py-1 shadow-sm text-muted small d-flex align-items-center">
@@ -617,22 +617,18 @@ echo $OUTPUT->header();
     </div>
 
     <!-- Barra de Búsqueda y Botón Nueva Categoría -->
-    <div class="row mb-4 align-items-center">
-        <div class="col-md-9">
-            <form method="get" action="">
-                <div class="input-group bg-white rounded-pill border shadow-sm px-3 py-1">
-                    <div class="input-group-prepend align-items-center border-0 bg-transparent">
-                        <i class="fa fa-search text-muted"></i>
-                    </div>
-                    <input type="text" name="search" class="form-control border-0 shadow-none" placeholder="Filtrar tests en las categorías..." value="<?php p($search); ?>">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
+        <form method="get" action="" class="mb-0" style="width: 100%; max-width: 420px;">
+            <div class="input-group bg-white rounded-pill border shadow-sm px-3 py-1">
+                <div class="input-group-prepend align-items-center border-0 bg-transparent">
+                    <i class="fa fa-search text-muted"></i>
                 </div>
-            </form>
-        </div>
-        <div class="col-md-3 text-right">
-            <button class="btn btn-light bg-white border rounded-pill px-4 shadow-sm text-dark font-weight-bold" type="button" data-toggle="modal" data-target="#modalNuevaCategoria">
-                <i class="fa fa-folder-open text-primary mr-1"></i> Nueva Categoría
-            </button>
-        </div>
+                <input type="text" name="search" class="form-control border-0 shadow-none" placeholder="Filtrar tests en las categorías..." value="<?php p($search); ?>">
+            </div>
+        </form>
+        <button class="btn btn-light bg-white border rounded-pill px-4 shadow-sm text-dark font-weight-bold" type="button" data-toggle="modal" data-target="#modalNuevaCategoria">
+            <i class="fa fa-folder-plus text-info mr-1"></i> Nueva Categoría
+        </button>
     </div>
 
     <!-- Listado de Cursos y Categorías -->
@@ -671,6 +667,7 @@ echo $OUTPUT->header();
     if (empty($courses)) {
         echo '<div class="alert bg-white border text-center py-4 rounded shadow-sm text-muted">No se encontraron tests que coincidan con <strong>"' . s($search) . '"</strong>.</div>';
     } else {
+        echo '<div class="testmanager-list-panel">';
         foreach ($courses as $course) {
             $categories = $DB->get_records_sql("SELECT * FROM {local_testmanager_categories} WHERE courseid = ? AND is_trash = 0", [$course->id]);
             // Todo curso lógico debe tener siempre su papelera; se crea si falta (cursos antiguos).
@@ -700,16 +697,19 @@ echo $OUTPUT->header();
                 $total_questions += $ctest->question_count;
             }
 
-            echo '<div class="testmanager-course-card mb-4 p-3 bg-white border rounded shadow-sm">';
+            echo '<div class="testmanager-course-block">';
 
             // Cabecera Principal del Curso
             echo '<div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">';
             echo '<div class="d-flex align-items-center">';
-            echo '<div class="d-flex align-items-center justify-content-center bg-light rounded p-2 mr-3" style="width: 42px; height: 42px; min-width: 42px;">';
-            echo '<i class="fa fa-folder text-info fa-lg"></i>';
+            echo '<button type="button" class="testmanager-collapse-toggle" data-toggle="collapse" ' .
+                'data-target="#courseBody-' . $course->id . '" aria-expanded="true" aria-controls="courseBody-' . $course->id . '" ' .
+                'title="Contraer/expandir curso"><i class="fa fa-chevron-down"></i></button>';
+            echo '<div class="testmanager-icon-box mr-3">';
+            echo '<i class="fa fa-folder fa-lg"></i>';
             echo '</div>';
             echo '<div>';
-            echo '<h5 class="mb-0 font-weight-bold text-dark" style="font-size: 1rem !important; text-transform: none !important;">' . format_string($course->name) . ' <span class="badge badge-secondary ml-2">' . $total_tests . ' tests</span></h5>';
+            echo '<h5 class="mb-0 font-weight-bold text-dark">' . format_string($course->name) . ' <span class="badge badge-secondary ml-2">' . $total_tests . ' tests</span></h5>';
             echo '<small class="text-muted">Total: <strong>' . $total_questions . ' preguntas</strong></small>';
             echo '</div></div>';
 
@@ -762,6 +762,8 @@ echo $OUTPUT->header();
             echo '</div>';
             echo '</div>';
 
+            echo '<div id="courseBody-' . $course->id . '" class="collapse show">';
+
             // Recorrido de Subcategorías
             foreach ($categories as $cat) {
                 $cat_test_sql = "SELECT * FROM {local_testmanager_tests} WHERE categoryid = :categoryid";
@@ -797,11 +799,20 @@ echo $OUTPUT->header();
                     'sesskey' => sesskey()
                 ]);
 
-                echo '<div class="mb-3 pl-2">';
-                echo '<div class="d-flex justify-content-between align-items-center mb-2 pr-2" style="font-size: 0.9rem;">';
-                echo '<div class="d-flex align-items-center text-dark font-weight-bold">';
-                echo '<i class="fa fa-folder-open text-warning mr-2"></i> ' . format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' . $cat_tests_count . ' tests</span>';
+                echo '<div class="mb-4">';
+                echo '<div class="testmanager-category-block">';
+                echo '<div class="d-flex justify-content-between align-items-center">';
+                echo '<div class="d-flex align-items-center">';
+                echo '<div class="testmanager-icon-box testmanager-icon-box-sm mr-3" style="background-color:#fff7ed; color:#f59e0b;">';
+                echo '<i class="fa fa-folder-open"></i>';
                 echo '</div>';
+                echo '<div>';
+                echo '<div class="d-flex align-items-center text-dark font-weight-bold" style="font-size: 0.9rem;">' .
+                    format_string($cat->name) . ' <span class="badge badge-light border ml-2 text-muted font-weight-normal">' .
+                    $cat_tests_count . ' tests</span></div>';
+                echo '<div class="testmanager-category-meta">Perteneciente a <strong>' . format_string($course->name) .
+                    '</strong> &bull; Total: <strong>' . $cat_questions_count . ' preguntas</strong></div>';
+                echo '</div></div>';
 
                 echo '<a href="#" class="text-muted" data-toggle="modal" data-target="#modalEliminarCategoria-' . $cat->id . '" ' .
                     'title="Eliminar Categoría"><i class="fa fa-trash" style="font-size: 0.85rem;"></i></a>';
@@ -815,7 +826,8 @@ echo $OUTPUT->header();
                         $cat_questions_count . ' preguntas</strong>. La categoría, sus tests y los cuestionarios de ' .
                         'Moodle asociados serán eliminados definitivamente.',
                     $deletecaturl);
-                echo '</div>';
+                echo '</div>'; // .d-flex header
+                echo '</div>'; // .testmanager-category-block
 
                 if (empty($tests)) {
                     echo '<div class="text-muted pl-4 mb-2 font-italic small">No hay tests en esta categoría.</div>';
@@ -837,11 +849,11 @@ echo $OUTPUT->header();
 
                         $nativeurl = $cm ? new moodle_url('/mod/quiz/view.php', ['id' => $cm->id]) : '#';
 
-                        echo '<div class="testmanager-item ml-3 p-2 border rounded mb-2 bg-light d-flex justify-content-between align-items-center" draggable="true">';
+                        echo '<div class="testmanager-item ml-3" draggable="true">';
                         echo '<div class="d-flex align-items-center">';
                         echo '<i class="fa fa-grip-vertical text-muted mr-3" style="cursor: grab; font-size: 0.85rem;"></i>';
-                        echo '<div class="d-flex align-items-center justify-content-center bg-white rounded mr-3 shadow-sm" style="width: 34px; height: 34px; min-width: 34px;">';
-                        echo '<i class="fa fa-file-alt text-info"></i>';
+                        echo '<div class="testmanager-icon-box testmanager-icon-box-sm mr-3">';
+                        echo '<i class="fa fa-file-alt"></i>';
                         echo '</div>';
                         echo '<div>';
 
@@ -851,7 +863,7 @@ echo $OUTPUT->header();
                             echo '<span class="font-weight-bold text-dark" style="font-size: 0.9rem;">' . format_string($t->name) . ' (No vinculado a Moodle)</span><br>';
                         }
 
-                        echo '<span class="badge badge-info mr-2"><i class="fa fa-question-circle mr-1"></i> ' . $t->question_count . ' preguntas</span>';
+                        echo '<span class="badge badge-pill badge-light border text-info px-2 mr-2"><i class="fa fa-question-circle mr-1"></i> ' . $t->question_count . ' preguntas</span>';
                         echo '<small class="text-muted" style="font-size: 75%;">Actualizado: ' . date('Y-m-d', $t->timecreated) . '</small>';
                         echo '</div>';
                         echo '</div>';
@@ -893,8 +905,10 @@ echo $OUTPUT->header();
             echo '</div>';
             echo '</div>';
 
-            echo '</div>';
+            echo '</div>'; // #courseBody-{id} (.collapse)
+            echo '</div>'; // .testmanager-course-block
         }
+        echo '</div>'; // .testmanager-list-panel
 
         if (!empty($search) && !$found_any_results) {
             echo '<div class="alert bg-white border text-center py-4 rounded shadow-sm text-muted">No se encontraron tests que coincidan con <strong>"' . s($search) . '"</strong>.</div>';
