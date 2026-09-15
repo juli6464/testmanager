@@ -44,3 +44,4 @@ try {
 }
 
 echo json_encode($result);
+ ob

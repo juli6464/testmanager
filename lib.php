@@ -224,3 +224,138 @@ function local_testmanager_render_trash_modal($course, array $trashedtests, $tra
 
     return $html;
 }
+
+/**
+ * Busca tests activos (no papelera) para el selector "Importar desde Banco de Preguntas".
+ *
+ * @param string $search texto libre a buscar en el nombre del test.
+ * @param int $filtercourse id de local_testmanager_courses, 0 = todos.
+ * @param int $filtercategory id de local_testmanager_categories, 0 = todas.
+ * @return array registros de local_testmanager_tests con coursename y catname añadidos.
+ */
+function local_testmanager_search_bank_tests($search, $filtercourse, $filtercategory) {
+    global $DB;
+
+    $sql = "SELECT t.*, c.id AS courseid, c.name AS coursename, cat.name AS catname
+              FROM {local_testmanager_tests} t
+              JOIN {local_testmanager_categories} cat ON t.categoryid = cat.id
+              JOIN {local_testmanager_courses} c ON cat.courseid = c.id
+             WHERE cat.is_trash = 0";
+    $params = [];
+
+    if ($filtercourse > 0) {
+        $sql .= " AND c.id = :courseid";
+        $params['courseid'] = $filtercourse;
+    }
+
+    if ($filtercategory > 0) {
+        $sql .= " AND cat.id = :catid";
+        $params['catid'] = $filtercategory;
+    }
+
+    if (!empty($search)) {
+        $sql .= " AND " . $DB->sql_like('t.name', ':search', false);
+        $params['search'] = '%' . $DB->sql_like_escape($search) . '%';
+    }
+
+    $sql .= " ORDER BY t.name ASC";
+
+    return $DB->get_records_sql($sql, $params);
+}
+
+/**
+ * Renderiza el listado de tarjetas de tests del selector "Importar desde Banco de Preguntas".
+ *
+ * @param array $tests resultado de local_testmanager_search_bank_tests().
+ * @return string HTML del listado (o del estado vacío).
+ */
+function local_testmanager_render_bank_test_cards(array $tests) {
+    if (empty($tests)) {
+        return '<div class="text-center text-muted py-4 border rounded bg-light" style="font-size: 13px;">' .
+            '<i class="fa fa-info-circle mb-1"></i> No hay tests creados con los filtros o criterios de búsqueda seleccionados.</div>';
+    }
+
+    // El check visual NO usa las clases custom-control/custom-control-label de Bootstrap: en el tema
+    // instalado no pintan el tick (se ve el cuadrado relleno pero sin flecha), así que se construye
+    // a mano con CSS propio (ver .bank-test-card en styles.css) apoyado solo en :checked.
+    $html = '';
+    foreach ($tests as $t) {
+        $html .= '<div class="bank-test-card">';
+        $html .= '<input type="checkbox" class="bank-test-checkbox" id="banktest_' . $t->id .
+            '" name="selected_tests[]" value="' . $t->id . '">';
+        $html .= '<label class="bank-test-card-inner" for="banktest_' . $t->id . '">';
+        $html .= '<span class="bank-check-visual" aria-hidden="true"><i class="fa fa-check"></i></span>';
+        $html .= '<span class="bank-test-info">';
+        $html .= '<span class="bank-test-name">' . s($t->name) . '</span>';
+        $html .= '<span class="bank-test-meta">Pertenece a ' . s($t->catname ?? 'N/D') . '</span>';
+        $html .= '</span>';
+        $html .= '<span class="badge badge-pill badge-light border text-info px-3 py-1 font-weight-bold" ' .
+            'style="font-size: 11px;">' . ($t->question_count ?? 0) . ' preguntas</span>';
+        $html .= '</label></div>';
+    }
+
+    return $html;
+}
+
+/**
+ * Renderiza el modal "Importar Test desde Banco de Preguntas": filtros + listado inicial.
+ *
+ * El listado que se muestra al abrir el modal se genera en servidor con los mismos filtros
+ * que usará después el AJAX (ajax/bank_search.php), para no duplicar la consulta ni el HTML.
+ *
+ * @return string HTML del cuerpo del modal.
+ */
+function local_testmanager_render_bank_modal_body() {
+    global $DB;
+
+    $courses = $DB->get_records('local_testmanager_courses', null, 'name ASC', 'id, name');
+    $categories = $DB->get_records_select('local_testmanager_categories', 'is_trash = 0', null, 'name ASC', 'id, name, courseid');
+    $tests = local_testmanager_search_bank_tests('', 0, 0);
+
+    $html  = '<input type="hidden" id="id_bank_categoryid" value="0">';
+    $html .= '<div class="input-group bg-white rounded-pill border shadow-sm px-3 py-1 mb-3">';
+    $html .= '<div class="input-group-prepend align-items-center border-0 bg-transparent"><i class="fa fa-search text-muted"></i></div>';
+    $html .= '<input type="text" id="bank-search-input" class="form-control border-0 shadow-none" ' .
+        'placeholder="Busca por nombre de test o palabra clave...">';
+    $html .= '</div>';
+
+    $html .= '<div class="row mb-3">';
+    $html .= '<div class="col-md-6">';
+    $html .= '<label class="small font-weight-bold text-muted"><i class="fa fa-book mr-1"></i> FILTRO CURSO</label>';
+    $html .= '<select id="bank-filter-course" class="custom-select rounded-pill border shadow-sm px-3" style="font-size: 13px;">';
+    $html .= '<option value="0">Todos los Cursos</option>';
+    foreach ($courses as $c) {
+        $html .= '<option value="' . $c->id . '">' . s($c->name) . '</option>';
+    }
+    $html .= '</select></div>';
+
+    $html .= '<div class="col-md-6">';
+    $html .= '<label class="small font-weight-bold text-muted"><i class="fa fa-layer-group mr-1"></i> FILTRO CATEGORÍA</label>';
+    $html .= '<select id="bank-filter-category" class="custom-select rounded-pill border shadow-sm px-3" style="font-size: 13px;">';
+    $html .= '<option value="0">Todas las Categorías</option>';
+    foreach ($categories as $cat) {
+        $html .= '<option value="' . $cat->id . '" data-courseid="' . $cat->courseid . '">' . s($cat->name) . '</option>';
+    }
+    $html .= '</select></div>';
+    $html .= '</div>';
+
+    $html .= '<div class="d-flex justify-content-between align-items-center mb-2 px-1">';
+    $html .= '<small class="text-muted font-weight-bold" id="bank-results-count">Lista de Tests (' . count($tests) . ' encontrados)</small>';
+    $html .= '<a href="#" class="text-info font-weight-bold small text-decoration-none" id="bank-select-all">Seleccionar todos</a>';
+    $html .= '</div>';
+
+    $html .= '<div class="bank-tests-list" id="bank-tests-list" style="max-height: 280px; overflow-y: auto; padding-right: 4px;">';
+    $html .= local_testmanager_render_bank_test_cards($tests);
+    $html .= '</div>';
+
+    $html .= '<div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">';
+    $html .= '<small class="text-muted font-weight-bold" id="bank-selected-counter">0 tests seleccionados</small>';
+    $html .= '<div>';
+    $html .= '<button type="button" class="btn btn-light text-dark px-4 mr-2" data-dismiss="modal" ' .
+        'style="border-radius: 50rem; border: 1px solid #ced4da; font-size: 13px;">Cancelar</button>';
+    $html .= '<button type="button" id="bank-import-btn" class="btn text-white font-weight-bold px-4" disabled ' .
+        'style="background-color: #00a2ed; border-radius: 50rem; border: none; font-size: 13px;">Importar</button>';
+    $html .= '</div></div>';
+
+    return $html;
+}

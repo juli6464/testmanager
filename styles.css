@@ -203,3 +203,107 @@ body {
 #modalImportarTest .modal-body .fitem_actionbuttons input[name="cancel"]:hover {
     background-color: #e2e6ea !important;
 }
+
+/* Selector "Importar Test desde Banco de Preguntas" */
+
+/* El input real queda oculto pero sigue siendo el que manda el estado (:checked);
+   todo el resto (borde, fondo, tick) es CSS propio que reacciona a ese estado,
+   sin depender de las clases custom-control de Bootstrap (no pintaban el tick). */
+.bank-test-checkbox {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.bank-test-card {
+    position: relative;
+    margin-bottom: 10px;
+}
+
+.bank-test-card-inner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    min-height: 64px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background-color: #ffffff;
+    cursor: pointer;
+    margin-bottom: 0;
+    transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+
+.bank-test-card-inner:hover {
+    border-color: #bce8f1;
+}
+
+.bank-test-checkbox:checked ~ .bank-test-card-inner {
+    border-color: #17a2b8;
+    background-color: #f0fbfd;
+}
+
+.bank-test-checkbox:focus-visible ~ .bank-test-card-inner {
+    box-shadow: 0 0 0 3px rgba(23, 162, 184, .25);
+}
+
+.bank-check-visual {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid #cbd5e0;
+    background-color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.bank-check-visual i {
+    color: #ffffff;
+    font-size: 11px;
+    opacity: 0;
+    transform: scale(.5);
+    transition: opacity .1s ease, transform .1s ease;
+}
+
+.bank-test-checkbox:checked ~ .bank-test-card-inner .bank-check-visual {
+    background-color: #17a2b8;
+    border-color: #17a2b8;
+}
+
+.bank-test-checkbox:checked ~ .bank-test-card-inner .bank-check-visual i {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.bank-test-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.bank-test-name {
+    font-weight: 700;
+    color: #1a202c;
+    font-size: 14px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bank-test-meta {
+    font-size: 12px;
+    line-height: 1.3;
+    color: #718096;
+}
+
+#bank-filter-course, #bank-filter-category {
+    width: 100%;
+}

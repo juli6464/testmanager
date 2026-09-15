@@ -14,6 +14,7 @@ require_once($CFG->dirroot . '/course/lib.php');
 require_login();
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url('/local/testmanager/ajax/import_bank.php');
+require_capability('local/testmanager:manage', context_system::instance());
 
 header('Content-Type: application/json');
 

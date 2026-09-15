@@ -3,7 +3,6 @@ require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/local/testmanager/classes/form/course_form.php');
 require_once($CFG->dirroot . '/local/testmanager/classes/form/category_form.php');
 require_once($CFG->dirroot . '/local/testmanager/classes/form/test_form.php');
-require_once($CFG->dirroot . '/local/testmanager/classes/form/bank_test_form.php');
 require_once($CFG->dirroot . '/local/testmanager/lib.php');
 
 require_login();
@@ -981,7 +980,7 @@ echo $deletemodals;
         <div class="modal-content border-0 shadow-lg rounded-lg">
             <div class="modal-header border-0 pb-0 pt-4 px-4">
                 <div class="d-flex align-items-center">
-                    <div class="icon-container text-info rounded-circle p-2 mr-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; background-color: #e6f6f8;">
+                    <div class="icon-container text-info rounded p-2 mr-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; background-color: #e6f6f8;">
                         <i class="fa fa-database"></i>
                     </div>
                     <h5 class="modal-title font-weight-bold text-dark" id="modalImportarBancoLabel">Importar Test desde Banco de Preguntas</h5>
@@ -991,10 +990,7 @@ echo $deletemodals;
                 </button>
             </div>
             <div class="modal-body px-4 py-3">
-                <?php
-                $bankform = new \local_testmanager\form\bank_test_form();
-                $bankform->display();
-                ?>
+                <?php echo local_testmanager_render_bank_modal_body(); ?>
             </div>
         </div>
     </div>
@@ -1010,8 +1006,151 @@ require(['jquery'], function($) {
         $('#id_categoryid').val($(this).attr('data-categoryid'));
     });
 
+    // --- Importar Test desde Banco de Preguntas ---------------------------------------
+    var bankSelectedIds = [];
+    var bankSearchTimer = null;
+
+    var bankRefreshCounter = function() {
+        var n = bankSelectedIds.length;
+        $('#bank-selected-counter').text(n + (n === 1 ? ' test seleccionado' : ' tests seleccionados'));
+        $('#bank-import-btn').prop('disabled', n === 0);
+    };
+
+    // El resaltado (borde/fondo/tick) es CSS puro sobre :checked (ver .bank-test-card en styles.css):
+    // basta con reflejar aquí el estado marcado/desmarcado del checkbox real.
+    var bankApplySelectionToList = function() {
+        $('#bank-tests-list .bank-test-checkbox').each(function() {
+            $(this).prop('checked', bankSelectedIds.indexOf($(this).val()) !== -1);
+        });
+    };
+
+    var bankFetchTests = function() {
+        var params = {
+            search: $('#bank-search-input').val(),
+            filtercourse: $('#bank-filter-course').val(),
+            filtercategory: $('#bank-filter-category').val(),
+            sesskey: M.cfg.sesskey
+        };
+        $('#bank-tests-list').css('opacity', 0.5);
+        $.ajax({
+            url: M.cfg.wwwroot + '/local/testmanager/ajax/bank_search.php',
+            method: 'GET',
+            data: params,
+            dataType: 'json'
+        }).done(function(response) {
+            if (response && response.status === 'ok') {
+                $('#bank-tests-list').html(response.html);
+                $('#bank-results-count').text('Lista de Tests (' + response.count + ' encontrados)');
+                bankApplySelectionToList();
+            }
+        }).always(function() {
+            $('#bank-tests-list').css('opacity', 1);
+        });
+    };
+
     $(document).on('click', '.btn-abrir-banco', function() {
         $('#id_bank_categoryid').val($(this).attr('data-categoryid'));
+        // Cada botón abre el selector para una categoría destino distinta: partimos de cero.
+        bankSelectedIds = [];
+        $('#bank-search-input').val('');
+        $('#bank-filter-course').val('0');
+        $('#bank-filter-category').val('0').find('option').show();
+        bankRefreshCounter();
+        bankFetchTests();
+    });
+
+    $(document).on('input', '#bank-search-input', function() {
+        window.clearTimeout(bankSearchTimer);
+        bankSearchTimer = window.setTimeout(bankFetchTests, 300);
+    });
+
+    $(document).on('change', '#bank-filter-course', function() {
+        var courseid = $(this).val();
+        // Solo mostramos en el desplegable las categorías del curso elegido.
+        $('#bank-filter-category option').each(function() {
+            var optcourse = $(this).attr('data-courseid');
+            $(this).toggle(typeof optcourse === 'undefined' || courseid === '0' || optcourse === courseid);
+        });
+        $('#bank-filter-category').val('0');
+        bankFetchTests();
+    });
+
+    $(document).on('change', '#bank-filter-category', bankFetchTests);
+
+    $(document).on('change', '.bank-test-checkbox', function() {
+        var id = $(this).val();
+        var checked = $(this).is(':checked');
+        var pos = bankSelectedIds.indexOf(id);
+        if (checked && pos === -1) {
+            bankSelectedIds.push(id);
+        } else if (!checked && pos !== -1) {
+            bankSelectedIds.splice(pos, 1);
+        }
+        bankRefreshCounter();
+    });
+
+    $(document).on('click', '#bank-select-all', function(e) {
+        e.preventDefault();
+        var visible = $('#bank-tests-list .bank-test-checkbox');
+        var allChecked = visible.length > 0 && visible.filter(':checked').length === visible.length;
+        visible.each(function() {
+            var id = $(this).val();
+            var pos = bankSelectedIds.indexOf(id);
+            if (allChecked) {
+                if (pos !== -1) {
+                    bankSelectedIds.splice(pos, 1);
+                }
+            } else if (pos === -1) {
+                bankSelectedIds.push(id);
+            }
+        });
+        bankApplySelectionToList();
+        bankRefreshCounter();
+    });
+
+    $(document).on('click', '#bank-import-btn', function() {
+        var button = $(this);
+        if (bankSelectedIds.length === 0 || button.prop('disabled')) {
+            return;
+        }
+        button.prop('disabled', true).text('Importando...');
+        $.ajax({
+            url: M.cfg.wwwroot + '/local/testmanager/ajax/import_bank.php',
+            method: 'POST',
+            data: {
+                categoryid: $('#id_bank_categoryid').val(),
+                selected_tests: JSON.stringify(bankSelectedIds),
+                sesskey: M.cfg.sesskey
+            },
+            dataType: 'json'
+        }).done(function(response) {
+            if (response && response.status === 'ok') {
+                require(['core/notification'], function(Notification) {
+                    var msg = response.imported + (response.imported === 1 ? ' test importado.' : ' tests importados.');
+                    if (response.errors && response.errors.length) {
+                        msg += ' Incidencias: ' + response.errors.join(' | ');
+                    }
+                    Notification.addNotification({
+                        message: msg,
+                        type: response.errors && response.errors.length ? 'warning' : 'success'
+                    });
+                    window.setTimeout(function() { window.location.reload(); }, 1200);
+                });
+            } else {
+                require(['core/notification'], function(Notification) {
+                    Notification.addNotification({
+                        message: (response && response.message) ? response.message : 'No se pudo completar la importación.',
+                        type: 'error'
+                    });
+                });
+                button.prop('disabled', false).text('Importar');
+            }
+        }).fail(function() {
+            require(['core/notification'], function(Notification) {
+                Notification.addNotification({message: 'Error de comunicación al importar.', type: 'error'});
+            });
+            button.prop('disabled', false).text('Importar');
+        });
     });
 
     // Tras mover un test a la papelera volvemos abriéndola para que se vea ya reciclado.
