@@ -6,6 +6,7 @@ $confirm = optional_param('confirm', 0, PARAM_INT);
 
 require_login();
 $PAGE->set_context(context_system::instance());
+require_capability('local/testmanager:manage', context_system::instance());
 $PAGE->set_url(new moodle_url('/local/testmanager/delete_category.php', ['id' => $id]));
 $PAGE->set_title('Eliminar Categoría');
 
@@ -29,7 +30,13 @@ if ($testcount > 0 && !$confirm) {
 }
 
 // Eliminación en cascada de tests y categoría
-$DB->delete_records('local_testmanager_tests', ['categoryid' => $id]);
-$DB->delete_records('local_testmanager_categories', ['id' => $id]);
+$transaction = $DB->start_delegated_transaction();
+try {
+    $DB->delete_records('local_testmanager_tests', ['categoryid' => $id]);
+    $DB->delete_records('local_testmanager_categories', ['id' => $id]);
+    $transaction->allow_commit();
+} catch (Exception $e) {
+    $transaction->rollback($e);
+}
 
 redirect(new moodle_url('/local/testmanager/index.php'), 'Categoría y sus tests eliminados correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);

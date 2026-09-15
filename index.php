@@ -6,6 +6,7 @@ require_once($CFG->dirroot . '/local/testmanager/classes/form/test_form.php');
 require_once($CFG->dirroot . '/local/testmanager/classes/form/bank_test_form.php');
 
 require_login();
+require_capability('local/testmanager:manage', context_system::instance());
 
 global $DB;
 $dbman = $DB->get_manager();
@@ -137,21 +138,33 @@ if ($action === 'deletetest' && $testid && confirm_sesskey()) {
 
 // Lógica para eliminar el curso y sus categorías/tests asociados
 if ($action === 'deletecourse' && $courseid && confirm_sesskey()) {
-    $categories = $DB->get_records('local_testmanager_categories', ['courseid' => $courseid]);
-    foreach ($categories as $cat) {
-        $DB->delete_records('local_testmanager_tests', ['categoryid' => $cat->id]);
+    $transaction = $DB->start_delegated_transaction();
+    try {
+        $categories = $DB->get_records('local_testmanager_categories', ['courseid' => $courseid]);
+        foreach ($categories as $cat) {
+            $DB->delete_records('local_testmanager_tests', ['categoryid' => $cat->id]);
+        }
+        $DB->delete_records('local_testmanager_categories', ['courseid' => $courseid]);
+        $DB->delete_records('local_testmanager_courses', ['id' => $courseid]);
+        $transaction->allow_commit();
+    } catch (Exception $e) {
+        $transaction->rollback($e);
     }
-    $DB->delete_records('local_testmanager_categories', ['courseid' => $courseid]);
-    $DB->delete_records('local_testmanager_courses', ['id' => $courseid]);
     redirect(new moodle_url('/local/testmanager/index.php'), 'Curso eliminado correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 // Lógica para eliminar una categoría y sus tests asociados
 if ($action === 'deletecategory' && $categoryid && confirm_sesskey()) {
-    $cat = $DB->get_record('local_testmanager_categories', ['id' => $categoryid, 'is_trash' => 0]);
-    if ($cat) {
-        $DB->delete_records('local_testmanager_tests', ['categoryid' => $cat->id]);
-        $DB->delete_records('local_testmanager_categories', ['id' => $cat->id]);
+    $transaction = $DB->start_delegated_transaction();
+    try {
+        $cat = $DB->get_record('local_testmanager_categories', ['id' => $categoryid, 'is_trash' => 0]);
+        if ($cat) {
+            $DB->delete_records('local_testmanager_tests', ['categoryid' => $cat->id]);
+            $DB->delete_records('local_testmanager_categories', ['id' => $cat->id]);
+        }
+        $transaction->allow_commit();
+    } catch (Exception $e) {
+        $transaction->rollback($e);
     }
     redirect(new moodle_url('/local/testmanager/index.php'), 'Categoría eliminada correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
 }
@@ -184,23 +197,8 @@ if ($tdata = $testform->get_data()) {
 
     require_once($CFG->dirroot . '/course/lib.php');
 
-    $moodlecourseid = !empty($tmcourse->moodlecourseid) ? intval($tmcourse->moodlecourseid) : 0;
+    $moodlecourseid = SITEID; // No creamos cursos reales, usamos la portada (SITEID=1)
 
-    // Verificar que el curso en Moodle existe y NO es la portada del sitio (SITEID = 1)
-    if ($moodlecourseid <= 1 || !$DB->record_exists('course', ['id' => $moodlecourseid])) {
-        $coursedata = new stdClass();
-        $coursedata->fullname = $tmcourse ? $tmcourse->name : ('Gestor de Tests - Curso ' . $tmcourseid);
-        $coursedata->shortname = 'TESTMGR_' . $tmcourseid . '_' . time();
-        $coursedata->category = 1;
-        $coursedata->format = 'topics';
-
-        $newcourse = create_course($coursedata);
-        $moodlecourseid = $newcourse->id;
-
-        if ($tmcourse) {
-            $DB->set_field('local_testmanager_courses', 'moodlecourseid', $moodlecourseid, ['id' => $tmcourse->id]);
-        }
-    }
 
     $quiz = new stdClass();
     $quiz->course = $moodlecourseid;
@@ -258,8 +256,8 @@ if ($tdata = $testform->get_data()) {
     $cm->module = $module->id;
     $cm->instance = $quizid;
     $cm->section = 0;
-    $cm->visible = 1;
-    $cm->visibleold = 1;
+    $cm->visible = 0; // Oculto en la portada
+    $cm->visibleold = 0;
 
     $cmid = add_course_module($cm);
     course_add_cm_to_section($moodlecourseid, $cmid, 0);
