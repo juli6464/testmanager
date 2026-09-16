@@ -53,11 +53,17 @@ class test_form extends \moodleform {
 
         // Botones de acción estándar alineados limpiamente con Bootstrap
         tabular_buttons:
+        // Botones de acción estándar de Moodle alineados limpiamente con Bootstrap
         $buttonarray = [];
         $buttonarray[] = $mform->createElement('cancel', 'cancel', 'Cancelar');
         $buttonarray[] = $mform->createElement('submit', 'submitbutton', 'Importar');
         
         $mform->addGroup($buttonarray, 'buttonar', '', [' '], false);
         $mform->closeHeaderBefore('buttonar');
+
+        $buttonar = $mform->getElement('buttonar');
+        if ($buttonar) {
+            $buttonar->updateAttributes(['class' => 'testmanager-actionbuttons-group category-form-buttons']);
+        }
     }
 }

@@ -608,7 +608,7 @@ echo $OUTPUT->header();
         <h2 class="testmanager-header-title">Banco de <span class="text-accent pl-1 pr-1">Preguntas</span></h2>
         <div class="d-flex align-items-center">
             <form method="get" action="" class="mb-0 mr-3">
-                <div class="bg-white border rounded px-3 py-1 shadow-sm text-muted small d-flex align-items-center">
+                <div class="bg-white border rounded px-3 py-1 shadow-sm text-muted small d-flex align-items-center" style="height: 38px;" bis_skin_checked="1">
                     <i class="fa fa-filter text-info mr-2"></i> FILTRO CURSOS:
                     <select name="filtercourse" class="border-0 bg-transparent text-dark font-weight-bold ml-1 shadow-none" style="outline: none; cursor: pointer;" onchange="this.form.submit()">
                         <option value="0">Todos los cursos</option>

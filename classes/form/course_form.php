@@ -9,7 +9,7 @@ class course_form extends \moodleform {
     protected function definition() {
         $mform = $this->_form;
 
-
+        // Campo de texto nativo limpio
         $mform->addElement('text', 'name', 'Nombre del curso');
         $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');
         $mform->setType('name', PARAM_TEXT);
@@ -21,7 +21,12 @@ class course_form extends \moodleform {
         </div>';
         $mform->addElement('html', $infobox);
 
-        // Botones de acción ocultos o manejados por la plantilla visual del modal
+        // Botones de acción estándar de Moodle
         $this->add_action_buttons(true, 'Crear');
+
+        $buttonar = $mform->getElement('buttonar');
+        if ($buttonar) {
+            $buttonar->updateAttributes(['class' => 'testmanager-actionbuttons-group course-form-buttons']);
+        }
     }
 }

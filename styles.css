@@ -428,3 +428,68 @@ body {
 #bank-filter-course, #bank-filter-category {
     width: 100%;
 }
+
+/* Contenedor general de botones alineado a la derecha con orden invertido */
+.testmanager-actionbuttons-group {
+    display: flex !important;
+    flex-direction: row-reverse !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    gap: 12px !important;
+    margin-top: 1.5rem !important;
+}
+
+.testmanager-actionbuttons-group .fitemtitle {
+    display: none !important;
+}
+
+.testmanager-actionbuttons-group .felement {
+    display: flex !important;
+    gap: 12px !important;
+    width: 100% !important;
+    margin-left: 0 !important;
+}
+
+/* Botón Crear (Cursos) en Verde Opacado */
+.course-form-buttons input[name="submitbutton"] {
+    background-color: #96d3ac !important;
+    border-color: #96d3ac !important;
+    color: #ffffff !important;
+    border-radius: 0.375rem !important;
+    padding: 0.5rem 1.5rem !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+}
+.course-form-buttons input[name="submitbutton"]:hover {
+    background-color: #82c99a !important;
+    border-color: #82c99a !important;
+}
+
+/* Botón Guardar (Categorías) en Azul Aguamarina Opaco */
+.category-form-buttons input[name="submitbutton"] {
+    background-color: #73b9bc !important;
+    border-color: #73b9bc !important;
+    color: #ffffff !important;
+    border-radius: 0.375rem !important;
+    padding: 0.5rem 1.5rem !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+}
+.category-form-buttons input[name="submitbutton"]:hover {
+    background-color: #5fa5a8 !important;
+    border-color: #5fa5a8 !important;
+}
+
+/* Botones Cancelar en gris sutil para ambos */
+.testmanager-actionbuttons-group input[name="cancel"] {
+    background-color: #f8f9fa !important;
+    border-color: #d1d5db !important;
+    color: #374151 !important;
+    border-radius: 0.375rem !important;
+    padding: 0.5rem 1.5rem !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+}
+.testmanager-actionbuttons-group input[name="cancel"]:hover {
+    background-color: #f3f4f6 !important;
+}

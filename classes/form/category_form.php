@@ -19,11 +19,17 @@ class category_form extends \moodleform {
         $mform->addRule('courseid', 'Debe seleccionar un curso', 'required', null, 'client');
         $mform->setType('courseid', PARAM_INT);
 
+        // Campo de texto nativo limpio
         $mform->addElement('text', 'name', 'Nombre');
         $mform->addRule('name', 'El nombre es obligatorio', 'required', null, 'client');
         $mform->setType('name', PARAM_TEXT);
 
-        // Botones de acción ocultos o manejados por la plantilla visual del modal
-        $this->add_action_buttons(true, 'Crear');
+        // Botones de acción estándar de Moodle
+        $this->add_action_buttons(true, 'Guardar');
+
+        $buttonar = $mform->getElement('buttonar');
+        if ($buttonar) {
+            $buttonar->updateAttributes(['class' => 'testmanager-actionbuttons-group category-form-buttons']);
+        }
     }
 }
