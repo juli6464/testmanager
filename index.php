@@ -622,7 +622,7 @@ echo $OUTPUT->header();
                     </select>
                 </div>
             </form>
-            <button class="btn btn-success rounded px-4 text-white font-weight-bold" type="button" data-toggle="modal" data-target="#modalCrearCurso">
+            <button class="btn btn-success rounded px-4 text-white font-weight-bold" type="button" data-toggle="modal" data-target="#modalCrearCurso" style="background-color: #69BF3F ;">
                 <i class="fa fa-plus mr-1"></i> Crear Curso
             </button>
         </div>
@@ -638,7 +638,7 @@ echo $OUTPUT->header();
                 <input type="text" name="search" class="form-control border-0 shadow-none" placeholder="Filtrar tests en las categorías..." value="<?php p($search); ?>">
             </div>
         </form>
-        <button class="btn btn-light bg-white border rounde px-4 shadow-sm text-dark font-weight-bold" type="button" data-toggle="modal" data-target="#modalNuevaCategoria">
+        <button class="btn btn-light border rounded px-4 shadow-sm text-dark font-weight-bold d-inline-flex align-items-center" type="button" data-toggle="modal" data-target="#modalNuevaCategoria" style="background-color: #EEF1F4 !important; height: 38px;">
             <i class="fa fa-folder-plus text-info mr-1"></i> Nueva Categoría
         </button>
     </div>
@@ -744,7 +744,7 @@ echo $OUTPUT->header();
             ]);
 
             echo '<button type="button" class="btn btn-outline-success btn-sm rounded px-3 mr-3 testmanager-trash-dropzone" ' .
-                'style="text-transform: none; font-size: 12px;" ' .
+                'style="text-transform: none; font-size: 12px; background-color:#F0F9EB;" ' .
                 'data-courseid="' . $course->id . '" ' .
                 'data-toggle="modal" data-target="#modalPapelera-' . $course->id . '" ' .
                 'title="Arrastra aquí un test para enviarlo a la papelera">' .
@@ -822,7 +822,7 @@ echo $OUTPUT->header();
                 echo '<div class="d-flex justify-content-between align-items-center">';
                 echo '<div class="d-flex align-items-center">';
                 echo '<i class="fa fa-grip-vertical text-muted mr-2" style="cursor: grab; font-size: 0.85rem;"></i>';
-                echo '<div class="testmanager-icon-box testmanager-icon-box-sm mr-3" style="background-color:#fff7ed; color:#f59e0b;">';
+                echo '<div class="testmanager-icon-box testmanager-icon-box-sm mr-3" style="background-color:#0099B2; color:#EEF1F4;">';
                 echo '<i class="fa fa-folder-open"></i>';
                 echo '</div>';
                 echo '<div>';
@@ -888,7 +888,7 @@ echo $OUTPUT->header();
                             echo '<span class="font-weight-bold text-dark" style="font-size: 0.9rem;">' . format_string($t->name) . ' (No vinculado a Moodle)</span><br>';
                         }
 
-                        echo '<span class="badge badge-pill badge-light border text-info px-2 mr-2"><i class="fa fa-question-circle mr-1"></i> ' . $t->question_count . ' preguntas</span>';
+                        echo '<span class="badge badge-pill badge-light border  px-2 mr-2" style="font-color: #5F6B76; background-color: #EEF1F4;"><i class="fa fa-question-circle mr-1" style="color:#0099B2;"></i> ' . $t->question_count . ' preguntas</span>';
                         echo '<small class="text-muted" style="font-size: 75%;">Actualizado: ' . date('Y-m-d', $t->timecreated) . '</small>';
                         echo '</div>';
                         echo '</div>';
@@ -925,8 +925,8 @@ echo $OUTPUT->header();
             echo '<small class="text-muted" style="text-transform: none;"><i class="fa fa-grip-vertical mr-1"></i> Arrastre un test para reordenar o mover</small>';
             echo '<div>';
             if ($firstcatid) {
-                echo '<button class="btn btn-outline-secondary rounded px-4 mr-2 bg-white font-weight-bold btn-abrir-importar" type="button" data-toggle="modal" data-target="#modalImportarTest" data-categoryid="' . $firstcatid . '" style="text-transform: none;"><i class="fa fa-upload mr-1"></i> Importar Test CSV</button>';
-                echo '<button class="btn btn-outline-info rounded px-4 bg-white font-weight-bold btn-abrir-banco" type="button" data-toggle="modal" data-target="#modalImportarBanco" data-categoryid="' . $firstcatid . '" style="text-transform: none;"><i class="fa fa-database mr-1"></i> Importar desde Banco</button>';
+                echo '<button class="btn btn-outline-secondary rounded px-4 mr-2 bg-white font-weight-bold btn-abrir-importar" type="button" data-toggle="modal" data-target="#modalImportarTest" data-categoryid="' . $firstcatid . '" style="text-transform: none;background-color: #EEF1F4 !important;"><i class="fa fa-upload mr-1"></i> Importar Test CSV</button>';
+                echo '<button class="btn btn-outline-info rounded px-4 bg-white font-weight-bold btn-abrir-banco" type="button" data-toggle="modal" data-target="#modalImportarBanco" data-categoryid="' . $firstcatid . '" style="text-transform: none;background-color: #E6F5F8 !important;"><i class="fa fa-database mr-1"></i> Importar desde Banco</button>';
             }
             echo '</div>';
             echo '</div>';
@@ -976,7 +976,7 @@ echo $deletemodals;
         <div class="modal-content border-0 shadow-lg rounded-lg">
             <div class="modal-header border-bottom-0 pb-0">
                 <div class="d-flex align-items-center">
-                    <div class="d-flex align-items-center justify-content-center rounded p-2 mr-3 text-success" style="width: 40px; height: 40px; background-color: #eaf5ec;">
+                    <div class="d-flex align-items-center justify-content-center rounded p-2 mr-3 text-success" style="width: 40px; height: 40px;">
                         <i class="fa fa-folder-plus fa-lg"></i>
                     </div>
                     <h5 class="modal-title font-weight-bold text-dark" id="modalCrearCursoLabel">Crear Curso</h5>

@@ -201,11 +201,11 @@ function local_testmanager_render_trash_modal($course, array $trashedtests, $tra
 
             $html .= '<li class="list-group-item d-flex justify-content-between align-items-center">';
             $html .= '<div><strong>' . format_string($test->name) . '</strong><br>' .
-                '<span class="badge badge-info mr-2"><i class="fa fa-question-circle mr-1"></i> ' .
+                '<span class="badge mr-2" style="color: #4B8B2C !important; background-color: #D2ECBF !important; font-size: 13px; font-weight: 500; padding: 6px 10px;"></i> ' .
                 $test->question_count . ' preguntas</span>' .
                 '<small class="text-muted">Creado: ' . userdate($test->timecreated, get_string('strftimedate')) . '</small></div>';
             $html .= '<div class="d-flex align-items-center">';
-            $html .= '<a href="' . $restoreurl->out(false) . '" class="btn btn-success btn-sm rounded text-white mr-2">' .
+            $html .= '<a href="' . $restoreurl->out(false) . '" class="btn btn-success btn-sm rounded text-white mr-2" style="background-color:#69BF3F">' .
                 '<i class="fa fa-undo"></i> Restaurar</a>';
             $html .= '<a href="' . $purgeurl->out(false) . '" class="btn btn-outline-danger btn-sm rounded" ' .
                 'title="Eliminar definitivamente"><i class="fa fa-times"></i></a>';
@@ -354,7 +354,7 @@ function local_testmanager_render_bank_modal_body() {
     $html .= '<button type="button" class="btn btn-light text-dark px-4 mr-2" data-dismiss="modal" ' .
         'style="border: 1px solid #ced4da; font-size: 13px;">Cancelar</button>';
     $html .= '<button type="button" id="bank-import-btn" class="btn text-white font-weight-bold px-4" disabled ' .
-        'style="background-color: #00a2ed; border: none; font-size: 13px;">Importar</button>';
+        'style="background-color: #0099B2; border: none; font-size: 13px;">Importar</button>';
     $html .= '</div></div>';
 
     return $html;
