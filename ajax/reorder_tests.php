@@ -41,10 +41,12 @@ if (!$cat) {
 foreach ($ordered_ids as $position => $testid) {
     $testid = intval($testid);
     if ($testid <= 0) continue;
-    // Solo actualizar tests que pertenezcan a esta categoría
+    // El orden recibido es el definitivo para esta categoría: además de fijar la
+    // posición, esto reasigna el test a $categoryid si venía de otra categoría
+    // (incluida una de otro curso), permitiendo así reubicarlo arrastrándolo.
     $DB->execute(
-        "UPDATE {local_testmanager_tests} SET sortorder = ? WHERE id = ? AND categoryid = ?",
-        [$position + 1, $testid, $categoryid]
+        "UPDATE {local_testmanager_tests} SET sortorder = ?, categoryid = ? WHERE id = ?",
+        [$position + 1, $categoryid, $testid]
     );
 }
 

@@ -187,6 +187,20 @@ body {
     box-shadow: 0 0 0 3px rgba(23, 162, 184, .25);
 }
 
+/* Zona de tests de una categoría: alto mínimo para poder soltar un test aunque
+   la categoría esté vacía, y resaltado mientras se arrastra un test sobre ella
+   (incluida una categoría de otro curso). */
+.testmanager-tests-list {
+    min-height: 20px;
+}
+
+.testmanager-tests-list.testmanager-drop-ready {
+    background-color: #eef2ff;
+    outline: 2px dashed #6366f1;
+    outline-offset: 2px;
+    border-radius: 8px;
+}
+
 /* Estilizar los botones generados por add_action_buttons dentro del modal de curso */
 #modalCrearCurso .modal-body .fitem_actionbuttons .fgroup {
     display: flex !important;

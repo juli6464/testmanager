@@ -854,7 +854,7 @@ echo $OUTPUT->header();
                 echo '<div class="testmanager-tests-list" data-categoryid="' . $cat->id . '" data-courseid="' . $course->id . '">';
 
                 if (empty($tests)) {
-                    echo '<div class="text-muted pl-4 mb-2 font-italic small">No hay tests en esta categoría.</div>';
+                    echo '<div class="text-muted pl-4 mb-2 font-italic small testmanager-empty-placeholder">No hay tests en esta categoría.</div>';
                 } else {
                     foreach ($tests as $t) {
                         $deleteurl = new moodle_url('/local/testmanager/index.php', ['action' => 'deletetest', 'testid' => $t->id, 'sesskey' => sesskey()]);
@@ -1058,9 +1058,11 @@ require(['jquery'], function($) {
     };
 
     var persistTestOrder = function(categoryid) {
-        var ids = $('.testmanager-tests-list[data-categoryid=\"' + categoryid + '\"] .testmanager-item').map(function() {
+        var list = $('.testmanager-tests-list[data-categoryid=\"' + categoryid + '\"]');
+        var ids = list.find('.testmanager-item').map(function() {
             return $(this).attr('data-testid');
         }).get();
+        toggleEmptyPlaceholder(list);
         if (!ids.length) {
             return;
         }
@@ -1070,6 +1072,19 @@ require(['jquery'], function($) {
             data: {order: JSON.stringify(ids), categoryid: categoryid, sesskey: M.cfg.sesskey},
             dataType: 'json'
         });
+    };
+
+    // Muestra/oculta el aviso 'No hay tests en esta categoría' según su contenido actual,
+    // necesario porque al mover un test arrastrando una categoría puede vaciarse o dejar
+    // de estar vacía sin recargar la página.
+    var toggleEmptyPlaceholder = function(list) {
+        var hasItems = list.find('.testmanager-item').length > 0;
+        var placeholder = list.find('.testmanager-empty-placeholder');
+        if (hasItems) {
+            placeholder.remove();
+        } else if (!placeholder.length) {
+            list.append('<div class=\"text-muted pl-4 mb-2 font-italic small testmanager-empty-placeholder\">No hay tests en esta categoría.</div>');
+        }
     };
 
     var persistCategoryOrder = function(courseid) {
@@ -1087,7 +1102,8 @@ require(['jquery'], function($) {
         });
     };
 
-    // Reordenar tests: arrastrando una fila sobre otra de su MISMA categoría.
+    // Reordenar/mover tests: arrastrando una fila sobre otra, de la misma categoría
+    // (reordena) o de otra categoría, incluso de otro curso (reubica el test allí).
     $(document).on('dragstart', '.testmanager-item', function(e) {
         var row = $(this);
         dndDragType = 'test';
@@ -1099,22 +1115,36 @@ require(['jquery'], function($) {
     });
 
     $(document).on('dragend', '.testmanager-item', function() {
-        $(this).removeClass('testmanager-dragging');
+        var row = $(this).removeClass('testmanager-dragging');
         clearDropIndicators();
         if (dndDragType === 'test' && dndDragScopeId) {
-            persistTestOrder(dndDragScopeId);
+            var newList = row.closest('.testmanager-tests-list');
+            var newCategoryId = newList.attr('data-categoryid');
+            var oldCategoryId = dndDragScopeId;
+            if (newCategoryId && newCategoryId !== oldCategoryId) {
+                // El test cambió de categoría (posiblemente de otro curso): se reordena
+                // primero la categoría de origen para que no queden huecos y luego se
+                // persiste la de destino, que además reasigna el test a esa categoría.
+                row.attr('data-categoryid', newCategoryId);
+                persistTestOrder(oldCategoryId);
+                persistTestOrder(newCategoryId);
+            } else {
+                persistTestOrder(oldCategoryId);
+            }
         }
         dndDragType = null;
         dndDragId = null;
         dndDragScopeId = null;
     });
 
+    // Arrastrar un test sobre otro: lo reordena si es de la misma categoría, o lo
+    // reubica junto a él si pertenece a otra categoría (incluida una de otro curso).
     $(document).on('dragover', '.testmanager-item', function(e) {
         if (dndDragType !== 'test') {
             return;
         }
         var target = $(this);
-        if (target.attr('data-testid') === dndDragId || target.attr('data-categoryid') !== dndDragScopeId) {
+        if (target.attr('data-testid') === dndDragId) {
             return;
         }
         e.preventDefault();
@@ -1137,6 +1167,37 @@ require(['jquery'], function($) {
         if (dndDragType === 'test') {
             e.preventDefault();
         }
+    });
+
+    // Soltar un test sobre una categoría vacía (propia o de otro curso) para ubicarlo ahí.
+    $(document).on('dragenter dragover', '.testmanager-tests-list', function(e) {
+        if (dndDragType !== 'test') {
+            return;
+        }
+        e.preventDefault();
+        e.originalEvent.dataTransfer.dropEffect = 'move';
+        var list = $(this);
+        list.addClass('testmanager-drop-ready');
+        if ($(e.target).closest('.testmanager-item').length) {
+            // El propio item ya gestiona la inserción exacta entre filas.
+            return;
+        }
+        var draggingRow = $('.testmanager-item[data-testid=\"' + dndDragId + '\"]');
+        if (list.find('.testmanager-item').length === 0) {
+            list.find('.testmanager-empty-placeholder').remove();
+            list.append(draggingRow);
+        }
+    });
+
+    $(document).on('dragleave', '.testmanager-tests-list', function() {
+        $(this).removeClass('testmanager-drop-ready');
+    });
+
+    $(document).on('drop', '.testmanager-tests-list', function(e) {
+        if (dndDragType === 'test') {
+            e.preventDefault();
+        }
+        $(this).removeClass('testmanager-drop-ready');
     });
 
     // Enviar un test a la papelera del curso soltándolo sobre el botón 'Papelera del Curso'.
