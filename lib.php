@@ -395,8 +395,11 @@ function local_testmanager_render_quizedit_modal_html() {
 }
 
 /**
- * Inyecta en mod/quiz/edit.php el ítem "Importar con Test Manager" dentro del desplegable
- * nativo "Añadir" de cada página del cuestionario, sin tocar ningún archivo del core.
+ * En mod/quiz/edit.php, reemplaza la acción del enlace nativo "Del banco de preguntas"
+ * (data-action="questionbank") del desplegable "Añadir" de cada página del cuestionario,
+ * para que abra el modal de importación de Test Manager en vez del banco de preguntas
+ * nativo de Moodle. No se añade un segundo ítem aparte, para no confundir al usuario con
+ * dos formas distintas de importar preguntas. No se toca ningún archivo del core.
  *
  * Se engancha vía local_testmanager_extend_navigation() (callback estándar de Moodle,
  * llamado en todas las páginas), el mismo mecanismo que ya usa local_questionsearch en
@@ -413,53 +416,53 @@ function local_testmanager_inject_quizedit_widget($cmid) {
 
     $cmid = (int) $cmid;
     $modalhtml = local_testmanager_render_quizedit_modal_html();
+    $autoopen = optional_param('testmanageropen', 0, PARAM_BOOL) ? 'true' : 'false';
 
     $jscode = <<<'JS'
 require(['jquery', 'core/notification'], function($, Notification) {
     var CMID = __CMID__;
     var MODALHTML = __MODALHTML__;
+    var AUTOOPEN = __AUTOOPEN__;
 
     if (!$('#modalImportarBancoQuiz').length) {
         $('body').append(MODALHTML);
     }
 
     // Cada página del quiz tiene su propio desplegable nativo "Añadir", con un enlace
-    // data-action="questionbank" ("Del banco de preguntas"). Insertamos nuestro propio
-    // ítem justo al lado, dentro de ese mismo menú.
-    var decorateAddMenus = function() {
-        $('a[data-action="questionbank"]').each(function() {
-            var $qb = $(this);
-            var $menu = $qb.closest('.dropdown-menu');
-            if (!$menu.length || $menu.find('[data-action="testmanagerimport"]').length) {
-                return;
-            }
-            var $item = $('<a href="#" role="menuitem" ' +
-                'class="dropdown-item aabtn cm-edit-action testmanagerimport" ' +
-                'data-action="testmanagerimport">' +
-                '<i class="fa fa-database mr-1" aria-hidden="true"></i> ' +
-                '<span class="menu-action-text">Importar con Test Manager</span></a>');
-            $qb.after($item);
-        });
+    // data-action="questionbank" ("Del banco de preguntas"). En vez de añadir un segundo
+    // ítem aparte (confundía al usuario con dos formas de "importar"), reemplazamos la
+    // acción de ese mismo enlace: al pulsarlo se abre el modal de Test Manager en lugar
+    // del banco de preguntas nativo de Moodle.
+    var openTestManagerModal = function() {
+        $('#modalImportarBancoQuiz').modal('show');
     };
 
-    decorateAddMenus();
-
-    // La estructura del quiz se vuelve a pintar tras reordenar páginas/preguntas por AJAX,
-    // así que observamos el documento para decorar también los menús que se generen después.
-    if (window.MutationObserver) {
-        new MutationObserver(decorateAddMenus).observe(document.body, {childList: true, subtree: true});
+    // Si venimos de una redirección desde question/edit.php (local_testmanager_maybe_redirect_question_bank),
+    // el modal se abre solo, sin esperar a que el usuario pulse "Del banco de preguntas".
+    if (AUTOOPEN) {
+        openTestManagerModal();
     }
 
-    $(document).on('click', 'a[data-action="testmanagerimport"]', function(e) {
+    // El core enlaza su propio manejador de clic (bubbling) sobre data-action="questionbank"
+    // para abrir el banco nativo. Se intercepta en fase de captura, antes de que ese
+    // manejador llegue a ejecutarse, y se detiene la propagación para que nunca se abra.
+    document.addEventListener('click', function(e) {
+        var target = e.target.closest && e.target.closest('a[data-action="questionbank"]');
+        if (!target) {
+            return;
+        }
         e.preventDefault();
-        var $trigger = $(this).closest('.dropdown').find('[data-toggle="dropdown"]');
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        var $trigger = $(target).closest('.dropdown').find('[data-toggle="dropdown"]');
         try {
             $trigger.dropdown('hide');
         } catch (err) {
-            $(this).closest('.dropdown-menu').removeClass('show');
+            $(target).closest('.dropdown-menu').removeClass('show');
         }
-        $('#modalImportarBancoQuiz').modal('show');
-    });
+        openTestManagerModal();
+    }, true);
 
     var bankSelectedIds = [];
     var bankSearchTimer = null;
@@ -601,27 +604,68 @@ JS;
 
     $jscode = str_replace('__CMID__', (string) $cmid, $jscode);
     $jscode = str_replace('__MODALHTML__', json_encode($modalhtml), $jscode);
+    $jscode = str_replace('__AUTOOPEN__', $autoopen, $jscode);
 
     $PAGE->requires->js_amd_inline($jscode);
 }
 
 /**
- * Callback estándar de Moodle: se llama en todas las páginas. Aquí solo actuamos cuando
- * estamos en mod/quiz/edit.php, para inyectar el widget de importación de Test Manager.
+ * Redirige el banco de preguntas nativo (/question/edit.php?cmid=...) a mod/quiz/edit.php
+ * con el modal de importación de Test Manager abierto automáticamente.
+ *
+ * Se redirige siempre que el cmid apunte a un cuestionario (sea o no gestionado por Test
+ * Manager): la intención es que el banco nativo nunca se llegue a ver para esta acción,
+ * y en su lugar se use siempre el modal de importación de Test Manager, ya integrado en
+ * mod/quiz/edit.php mediante local_testmanager_inject_quizedit_widget().
+ *
+ * No se toca question/edit.php (archivo del core): se intercepta desde el mismo hook
+ * extend_navigation que ya usa este plugin, antes de que se pinte cualquier salida.
+ *
+ * @param int $cmid course_module id recibido en la URL del banco de preguntas.
+ * @return void
+ */
+function local_testmanager_maybe_redirect_question_bank($cmid) {
+    $cmid = (int) $cmid;
+    if (!$cmid) {
+        return;
+    }
+
+    $cm = get_coursemodule_from_id('quiz', $cmid, 0, false, IGNORE_MISSING);
+    if (!$cm) {
+        return;
+    }
+
+    if (!has_capability('local/testmanager:manage', context_system::instance())) {
+        return;
+    }
+
+    redirect(new moodle_url('/mod/quiz/edit.php', ['cmid' => $cmid, 'testmanageropen' => 1]));
+}
+
+/**
+ * Callback estándar de Moodle: se llama en todas las páginas. Aquí actuamos cuando estamos
+ * en mod/quiz/edit.php (inyectar el widget de importación) o en question/edit.php (redirigir
+ * al plugin si el cmid pertenece a un cuestionario gestionado por Test Manager).
  *
  * No se toca ningún archivo del core: es el mismo mecanismo (extend_navigation) que ya
- * usa local_questionsearch en este Moodle para cargar JS en esa misma página.
+ * usa local_questionsearch en este Moodle para actuar en esas mismas páginas.
  *
  * @param global_navigation $nav
  */
 function local_testmanager_extend_navigation(global_navigation $nav) {
     global $PAGE;
 
+    $cmid = optional_param('cmid', 0, PARAM_INT);
+
+    if ($PAGE->pagetype === 'question-edit') {
+        local_testmanager_maybe_redirect_question_bank($cmid);
+        return;
+    }
+
     if ($PAGE->pagetype !== 'mod-quiz-edit') {
         return;
     }
 
-    $cmid = optional_param('cmid', 0, PARAM_INT);
     if (!$cmid) {
         return;
     }
