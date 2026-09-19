@@ -359,3 +359,276 @@ function local_testmanager_render_bank_modal_body() {
 
     return $html;
 }
+
+/**
+ * Construye el HTML del modal "Importar desde Test Manager" usado en mod/quiz/edit.php.
+ *
+ * Es el mismo buscador/filtro de local_testmanager_render_bank_modal_body(), envuelto en
+ * un modal de Bootstrap con su propio id para no chocar con el de index.php.
+ *
+ * @return string HTML del modal completo.
+ */
+function local_testmanager_render_quizedit_modal_html() {
+    $modalbody = local_testmanager_render_bank_modal_body();
+
+    $html = '';
+    $html .= '<div class="modal fade" id="modalImportarBancoQuiz" tabindex="-1" role="dialog" ' .
+        'aria-labelledby="modalImportarBancoQuizLabel" aria-hidden="true">';
+    $html .= '  <div class="modal-dialog modal-dialog-centered modal-lg" role="document">';
+    $html .= '    <div class="modal-content border-0 shadow-lg rounded-lg">';
+    $html .= '      <div class="modal-header border-0 pb-0 pt-4 px-4">';
+    $html .= '        <div>';
+    $html .= '          <h5 class="modal-title font-weight-bold text-dark" id="modalImportarBancoQuizLabel">' .
+        'Importar preguntas desde Test Manager</h5>';
+    $html .= '          <small class="text-muted">Las preguntas de los tests que selecciones se añadirán ' .
+        'al final de este cuestionario.</small>';
+    $html .= '        </div>';
+    $html .= '        <button type="button" class="close text-muted" data-dismiss="modal" aria-label="Close">' .
+        '<span aria-hidden="true">&times;</span></button>';
+    $html .= '      </div>';
+    $html .= '      <div class="modal-body px-4 py-3">' . $modalbody . '</div>';
+    $html .= '    </div>';
+    $html .= '  </div>';
+    $html .= '</div>';
+
+    return $html;
+}
+
+/**
+ * Inyecta en mod/quiz/edit.php el ítem "Importar con Test Manager" dentro del desplegable
+ * nativo "Añadir" de cada página del cuestionario, sin tocar ningún archivo del core.
+ *
+ * Se engancha vía local_testmanager_extend_navigation() (callback estándar de Moodle,
+ * llamado en todas las páginas), el mismo mecanismo que ya usa local_questionsearch en
+ * esta misma instalación para cargar JS en mod/quiz/edit.php. Se usa
+ * $PAGE->requires->js_amd_inline() para no depender de un build de AMD (grunt).
+ *
+ * El modal se construye e inserta por JS (no se echa HTML directamente desde el callback,
+ * porque extend_navigation no tiene un punto de salida para HTML crudo).
+ *
+ * @param int $cmid course_module id del cuestionario que se está editando.
+ */
+function local_testmanager_inject_quizedit_widget($cmid) {
+    global $PAGE;
+
+    $cmid = (int) $cmid;
+    $modalhtml = local_testmanager_render_quizedit_modal_html();
+
+    $jscode = <<<'JS'
+require(['jquery', 'core/notification'], function($, Notification) {
+    var CMID = __CMID__;
+    var MODALHTML = __MODALHTML__;
+
+    if (!$('#modalImportarBancoQuiz').length) {
+        $('body').append(MODALHTML);
+    }
+
+    // Cada página del quiz tiene su propio desplegable nativo "Añadir", con un enlace
+    // data-action="questionbank" ("Del banco de preguntas"). Insertamos nuestro propio
+    // ítem justo al lado, dentro de ese mismo menú.
+    var decorateAddMenus = function() {
+        $('a[data-action="questionbank"]').each(function() {
+            var $qb = $(this);
+            var $menu = $qb.closest('.dropdown-menu');
+            if (!$menu.length || $menu.find('[data-action="testmanagerimport"]').length) {
+                return;
+            }
+            var $item = $('<a href="#" role="menuitem" ' +
+                'class="dropdown-item aabtn cm-edit-action testmanagerimport" ' +
+                'data-action="testmanagerimport">' +
+                '<i class="fa fa-database mr-1" aria-hidden="true"></i> ' +
+                '<span class="menu-action-text">Importar con Test Manager</span></a>');
+            $qb.after($item);
+        });
+    };
+
+    decorateAddMenus();
+
+    // La estructura del quiz se vuelve a pintar tras reordenar páginas/preguntas por AJAX,
+    // así que observamos el documento para decorar también los menús que se generen después.
+    if (window.MutationObserver) {
+        new MutationObserver(decorateAddMenus).observe(document.body, {childList: true, subtree: true});
+    }
+
+    $(document).on('click', 'a[data-action="testmanagerimport"]', function(e) {
+        e.preventDefault();
+        var $trigger = $(this).closest('.dropdown').find('[data-toggle="dropdown"]');
+        try {
+            $trigger.dropdown('hide');
+        } catch (err) {
+            $(this).closest('.dropdown-menu').removeClass('show');
+        }
+        $('#modalImportarBancoQuiz').modal('show');
+    });
+
+    var bankSelectedIds = [];
+    var bankSearchTimer = null;
+
+    var bankRefreshCounter = function() {
+        var n = bankSelectedIds.length;
+        $('#bank-selected-counter').text(n + (n === 1 ? ' test seleccionado' : ' tests seleccionados'));
+        $('#bank-import-btn').prop('disabled', n === 0);
+    };
+
+    var bankApplySelectionToList = function() {
+        $('#bank-tests-list .bank-test-checkbox').each(function() {
+            $(this).prop('checked', bankSelectedIds.indexOf($(this).val()) !== -1);
+        });
+    };
+
+    var bankFetchTests = function() {
+        var params = {
+            search: $('#bank-search-input').val(),
+            filtercourse: $('#bank-filter-course').val(),
+            filtercategory: $('#bank-filter-category').val(),
+            sesskey: M.cfg.sesskey
+        };
+        $('#bank-tests-list').css('opacity', 0.5);
+        $.ajax({
+            url: M.cfg.wwwroot + '/local/testmanager/ajax/bank_search.php',
+            method: 'GET',
+            data: params,
+            dataType: 'json'
+        }).done(function(response) {
+            if (response && response.status === 'ok') {
+                $('#bank-tests-list').html(response.html);
+                $('#bank-results-count').text('Lista de Tests (' + response.count + ' encontrados)');
+                bankApplySelectionToList();
+            }
+        }).always(function() {
+            $('#bank-tests-list').css('opacity', 1);
+        });
+    };
+
+    $(document).on('show.bs.modal', '#modalImportarBancoQuiz', function() {
+        bankSelectedIds = [];
+        $('#bank-search-input').val('');
+        $('#bank-filter-course').val('0');
+        $('#bank-filter-category').val('0').find('option').show();
+        bankRefreshCounter();
+        bankFetchTests();
+    });
+
+    $(document).on('input', '#bank-search-input', function() {
+        window.clearTimeout(bankSearchTimer);
+        bankSearchTimer = window.setTimeout(bankFetchTests, 300);
+    });
+
+    $(document).on('change', '#bank-filter-course', function() {
+        var courseid = $(this).val();
+        $('#bank-filter-category option').each(function() {
+            var optcourse = $(this).attr('data-courseid');
+            $(this).toggle(typeof optcourse === 'undefined' || courseid === '0' || optcourse === courseid);
+        });
+        $('#bank-filter-category').val('0');
+        bankFetchTests();
+    });
+
+    $(document).on('change', '#bank-filter-category', bankFetchTests);
+
+    $(document).on('change', '.bank-test-checkbox', function() {
+        var id = $(this).val();
+        var checked = $(this).is(':checked');
+        var pos = bankSelectedIds.indexOf(id);
+        if (checked && pos === -1) {
+            bankSelectedIds.push(id);
+        } else if (!checked && pos !== -1) {
+            bankSelectedIds.splice(pos, 1);
+        }
+        bankRefreshCounter();
+    });
+
+    $(document).on('click', '#bank-select-all', function(e) {
+        e.preventDefault();
+        var visible = $('#bank-tests-list .bank-test-checkbox');
+        var allChecked = visible.length > 0 && visible.filter(':checked').length === visible.length;
+        visible.each(function() {
+            var id = $(this).val();
+            var pos = bankSelectedIds.indexOf(id);
+            if (allChecked) {
+                if (pos !== -1) {
+                    bankSelectedIds.splice(pos, 1);
+                }
+            } else if (pos === -1) {
+                bankSelectedIds.push(id);
+            }
+        });
+        bankApplySelectionToList();
+        bankRefreshCounter();
+    });
+
+    $(document).on('click', '#bank-import-btn', function() {
+        var button = $(this);
+        if (bankSelectedIds.length === 0 || button.prop('disabled')) {
+            return;
+        }
+        button.prop('disabled', true).text('Importando...');
+        $.ajax({
+            url: M.cfg.wwwroot + '/local/testmanager/ajax/import_bank_into_quiz.php',
+            method: 'POST',
+            data: {
+                cmid: CMID,
+                selected_tests: JSON.stringify(bankSelectedIds),
+                sesskey: M.cfg.sesskey
+            },
+            dataType: 'json'
+        }).done(function(response) {
+            if (response && response.status === 'ok') {
+                var msg = response.imported + (response.imported === 1 ?
+                    ' test añadido al cuestionario.' : ' tests añadidos al cuestionario.');
+                if (response.errors && response.errors.length) {
+                    msg += ' Incidencias: ' + response.errors.join(' | ');
+                }
+                Notification.addNotification({
+                    message: msg,
+                    type: response.errors && response.errors.length ? 'warning' : 'success'
+                });
+                window.setTimeout(function() { window.location.reload(); }, 1200);
+            } else {
+                Notification.addNotification({
+                    message: (response && response.message) ? response.message : 'No se pudo completar la importación.',
+                    type: 'error'
+                });
+                button.prop('disabled', false).text('Importar');
+            }
+        }).fail(function() {
+            Notification.addNotification({message: 'Error de comunicación al importar.', type: 'error'});
+            button.prop('disabled', false).text('Importar');
+        });
+    });
+});
+JS;
+
+    $jscode = str_replace('__CMID__', (string) $cmid, $jscode);
+    $jscode = str_replace('__MODALHTML__', json_encode($modalhtml), $jscode);
+
+    $PAGE->requires->js_amd_inline($jscode);
+}
+
+/**
+ * Callback estándar de Moodle: se llama en todas las páginas. Aquí solo actuamos cuando
+ * estamos en mod/quiz/edit.php, para inyectar el widget de importación de Test Manager.
+ *
+ * No se toca ningún archivo del core: es el mismo mecanismo (extend_navigation) que ya
+ * usa local_questionsearch en este Moodle para cargar JS en esa misma página.
+ *
+ * @param global_navigation $nav
+ */
+function local_testmanager_extend_navigation(global_navigation $nav) {
+    global $PAGE;
+
+    if ($PAGE->pagetype !== 'mod-quiz-edit') {
+        return;
+    }
+
+    $cmid = optional_param('cmid', 0, PARAM_INT);
+    if (!$cmid) {
+        return;
+    }
+
+    if (!has_capability('local/testmanager:manage', context_system::instance())) {
+        return;
+    }
+
+    local_testmanager_inject_quizedit_widget($cmid);
+}
