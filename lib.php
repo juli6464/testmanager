@@ -9,6 +9,64 @@ defined('MOODLE_INTERNAL') || die();
  */
 
 /**
+ * Repara los cuestionarios de Test Manager cuyo course_module quedó apuntando a una fila
+ * de {course_sections} que ya no existe (por ejemplo, si el curso perdió sus secciones).
+ * Moodle no puede resolver ese cmid ("ID de módulo de curso no válido: X") aunque el
+ * course_module siga en la tabla. Se reinsertan en la sección 0 de su curso con la misma
+ * API que ya usa el plugin al crear cuestionarios (course_add_cm_to_section()).
+ *
+ * A propósito solo toca los cmid que son quizid de algún local_testmanager_tests, en
+ * CUALQUIER curso (incluida la portada del sitio, donde viven los tests que todavía no se
+ * han importado a un curso real) — nunca otros course_modules ajenos al plugin.
+ *
+ * @return void
+ */
+function local_testmanager_repair_test_cms() {
+    global $DB, $CFG;
+
+    $quizids = array_unique(array_filter(
+        array_map('intval', $DB->get_fieldset_select('local_testmanager_tests', 'quizid', 'quizid > 0'))
+    ));
+    if (empty($quizids)) {
+        return;
+    }
+
+    list($insql, $params) = $DB->get_in_or_equal($quizids);
+    $cms = $DB->get_records_sql("
+        SELECT cm.id, cm.course, cm.section
+          FROM {course_modules} cm
+          JOIN {modules} m ON m.id = cm.module
+         WHERE m.name = 'quiz' AND cm.instance $insql", $params);
+    if (empty($cms)) {
+        return;
+    }
+
+    $validsectionsbycourse = [];
+    $brokenbycourse = [];
+    foreach ($cms as $cm) {
+        $courseid = (int) $cm->course;
+        if (!isset($validsectionsbycourse[$courseid])) {
+            $validsectionsbycourse[$courseid] = $DB->get_fieldset_select(
+                'course_sections', 'id', 'course = ?', [$courseid]);
+        }
+        if (!in_array((int) $cm->section, $validsectionsbycourse[$courseid], true)) {
+            $brokenbycourse[$courseid][] = $cm->id;
+        }
+    }
+    if (empty($brokenbycourse)) {
+        return;
+    }
+
+    require_once($CFG->dirroot . '/course/lib.php');
+    foreach ($brokenbycourse as $courseid => $cmids) {
+        foreach ($cmids as $cmid) {
+            course_add_cm_to_section($courseid, $cmid, 0);
+        }
+        rebuild_course_cache($courseid, true);
+    }
+}
+
+/**
  * Devuelve los cmid de los cuestionarios de Moodle asociados a una lista de tests.
  *
  * Se resuelven ANTES de borrar los registros del plugin, porque una vez borrada la
@@ -67,6 +125,270 @@ function local_testmanager_delete_quiz_modules(array $cmids) {
         } catch (\Throwable $e) {
             debugging('local_testmanager: no se pudo eliminar el cuestionario cmid ' . $cmid .
                 ': ' . $e->getMessage(), DEBUG_DEVELOPER);
+        }
+    }
+}
+
+/**
+ * Elimina los vínculos maestro->cuestionario de tests/cuestionarios que se están borrando,
+ * para que local_testmanager_test_links no acumule filas huérfanas.
+ *
+ * @param array $testids ids de local_testmanager_tests que se van a borrar.
+ * @param array $cmids cmid de los cuestionarios de Moodle que se van a borrar.
+ * @return void
+ */
+function local_testmanager_cleanup_test_links(array $testids, array $cmids) {
+    global $DB;
+
+    $testids = array_filter(array_map('intval', $testids));
+    if (!empty($testids)) {
+        list($insql, $params) = $DB->get_in_or_equal($testids);
+        $DB->delete_records_select('local_testmanager_test_links', "masterid $insql", $params);
+    }
+
+    $cmids = array_filter(array_map('intval', $cmids));
+    if (!empty($cmids)) {
+        list($insql, $params) = $DB->get_in_or_equal($cmids);
+        $DB->delete_records_select('local_testmanager_test_links', "cmid $insql", $params);
+    }
+}
+
+/**
+ * Id del test "maestro" del que $test es copia. Un test que nunca fue copiado a otro
+ * curso es su propio maestro (masterid = su propio id).
+ *
+ * @param stdClass $test registro de local_testmanager_tests.
+ * @return int
+ */
+function local_testmanager_get_master_id($test) {
+    return !empty($test->masterid) ? (int) $test->masterid : (int) $test->id;
+}
+
+/**
+ * Registra que las preguntas del test maestro $masterid ahora también viven en el
+ * cuestionario $cmid (de cualquier curso), para poder sincronizar altas y bajas de
+ * preguntas más adelante con local_testmanager_sync_master_test().
+ *
+ * @param int $masterid id de local_testmanager_tests que actúa como maestro.
+ * @param int $cmid course_module id del cuestionario destino.
+ * @return void
+ */
+function local_testmanager_link_master_to_cmid($masterid, $cmid) {
+    global $DB;
+
+    $masterid = (int) $masterid;
+    $cmid = (int) $cmid;
+    if (!$masterid || !$cmid) {
+        return;
+    }
+
+    if (!$DB->record_exists('local_testmanager_test_links', ['masterid' => $masterid, 'cmid' => $cmid])) {
+        $DB->insert_record('local_testmanager_test_links', [
+            'masterid'    => $masterid,
+            'cmid'        => $cmid,
+            'timecreated' => time(),
+        ]);
+    }
+}
+
+/**
+ * Devuelve, en orden, los slots de un cuestionario con su referencia de banco de preguntas.
+ *
+ * @param int $quizid id de {quiz}.
+ * @return array registros con slotid, refid, questionbankentryid, version, slot.
+ */
+function local_testmanager_get_quiz_entry_ids($quizid) {
+    global $DB;
+
+    return $DB->get_records_sql("
+        SELECT qr.id AS refid, qs.id AS slotid, qs.slot, qr.questionbankentryid, qr.version
+          FROM {quiz_slots} qs
+          JOIN {question_references} qr
+            ON qr.itemid = qs.id AND qr.component = 'mod_quiz' AND qr.questionarea = 'slot'
+         WHERE qs.quizid = ?
+      ORDER BY qs.slot ASC", [$quizid]);
+}
+
+/**
+ * Id de la pregunta (tabla {question}) correspondiente a la versión más reciente de un
+ * questionbankentryid, que es la que hay que usar al agregar la pregunta a un cuestionario.
+ *
+ * @param int $entryid questionbankentryid.
+ * @return int|false
+ */
+function local_testmanager_get_latest_questionid($entryid) {
+    global $DB;
+
+    return $DB->get_field_sql("
+        SELECT qv.questionid
+          FROM {question_versions} qv
+         WHERE qv.questionbankentryid = ?
+      ORDER BY qv.version DESC", [$entryid], IGNORE_MULTIPLE);
+}
+
+/**
+ * Sincroniza todos los cuestionarios vinculados a un test maestro con el conjunto de
+ * preguntas que tiene ACTUALMENTE el cuestionario del maestro: agrega los slots que falten
+ * y quita los que ya no estén. Así, agregar o eliminar una pregunta de un test (desde el
+ * banco nativo o desde el cuestionario maestro) se traslada automáticamente a todos los
+ * cursos donde ese test se haya importado, en vez de quedar solo en el maestro.
+ *
+ * Usa la API pública de mod_quiz (quiz_add_quiz_question() y structure::remove_slot())
+ * en vez de tocar quiz_slots/question_references a mano, para no dejar la estructura del
+ * cuestionario destino en un estado inconsistente (numeración de slots, secciones, etc.).
+ *
+ * @param stdClass $mastertest registro de local_testmanager_tests que es su propio maestro.
+ * @return void
+ */
+function local_testmanager_sync_master_test($mastertest) {
+    global $DB, $CFG;
+
+    if (empty($mastertest->quizid) || !$DB->record_exists('quiz', ['id' => $mastertest->quizid])) {
+        return;
+    }
+
+    $links = $DB->get_records('local_testmanager_test_links', ['masterid' => $mastertest->id]);
+    if (empty($links)) {
+        return;
+    }
+
+    require_once($CFG->dirroot . '/mod/quiz/locallib.php');
+
+    $masterentryids = array_map(function($r) {
+        return (int) $r->questionbankentryid;
+    }, array_values(local_testmanager_get_quiz_entry_ids($mastertest->quizid)));
+
+    foreach ($links as $link) {
+        $cm = get_coursemodule_from_id('quiz', $link->cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            // El cuestionario destino ya no existe: el vínculo quedó huérfano, se limpia.
+            $DB->delete_records('local_testmanager_test_links', ['id' => $link->id]);
+            continue;
+        }
+
+        $targetquizid = (int) $cm->instance;
+        if ($targetquizid === (int) $mastertest->quizid) {
+            continue;
+        }
+
+        $targetslots = local_testmanager_get_quiz_entry_ids($targetquizid);
+        $targetslotbyentry = [];
+        foreach ($targetslots as $ts) {
+            $targetslotbyentry[(int) $ts->questionbankentryid] = $ts->slot;
+        }
+
+        $toremove = array_diff(array_keys($targetslotbyentry), $masterentryids);
+        $toadd = array_diff($masterentryids, array_keys($targetslotbyentry));
+
+        if (empty($toremove) && empty($toadd)) {
+            continue;
+        }
+
+        try {
+            if (!empty($toremove)) {
+                // Se vuelve a construir structure() en cada vuelta (no solo el quiz_settings):
+                // remove_slot() reordena los slots restantes puertas adentro del objeto, y
+                // reutilizar la misma instancia para varias eliminaciones seguidas dejaba su
+                // caché interna (slotsinorder) desincronizada de la base de datos.
+                foreach ($toremove as $entryid) {
+                    $quizobj = \mod_quiz\quiz_settings::create($targetquizid);
+                    $structure = \mod_quiz\structure::create_for_quiz($quizobj);
+                    $currentslot = $DB->get_field_sql("
+                        SELECT qs.slot
+                          FROM {quiz_slots} qs
+                          JOIN {question_references} qr
+                            ON qr.itemid = qs.id AND qr.component = 'mod_quiz' AND qr.questionarea = 'slot'
+                         WHERE qs.quizid = ? AND qr.questionbankentryid = ?",
+                        [$targetquizid, $entryid], IGNORE_MISSING);
+                    if ($currentslot) {
+                        $structure->remove_slot($currentslot);
+                    }
+                }
+            }
+
+            if (!empty($toadd)) {
+                $targetquiz = $DB->get_record('quiz', ['id' => $targetquizid], '*', MUST_EXIST);
+                $targetquiz->cmid = $cm->id;
+                foreach ($toadd as $entryid) {
+                    $questionid = local_testmanager_get_latest_questionid($entryid);
+                    if ($questionid) {
+                        quiz_add_quiz_question($questionid, $targetquiz);
+                    }
+                }
+            }
+
+            $gradecalculator = \mod_quiz\quiz_settings::create($targetquizid)->get_grade_calculator();
+            $gradecalculator->recompute_quiz_sumgrades();
+        } catch (\Throwable $e) {
+            // No se detiene la sincronización de los demás cursos por un fallo puntual
+            // (por ejemplo, un cuestionario con intentos ya realizados no se puede editar).
+            debugging('local_testmanager: no se pudo sincronizar cmid ' . $link->cmid .
+                ' con el test maestro ' . $mastertest->id . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
+        }
+    }
+}
+
+/**
+ * Sincroniza todos los tests maestros (activos, no en papelera) que tengan al menos un
+ * cuestionario vinculado. Pensada para llamarse al cargar local/testmanager/index.php,
+ * igual que las auto-reparaciones que ya existen ahí.
+ *
+ * @return void
+ */
+function local_testmanager_sync_all_masters() {
+    global $DB;
+
+    $masters = $DB->get_records_sql("
+        SELECT t.*
+          FROM {local_testmanager_tests} t
+          JOIN {local_testmanager_categories} c ON c.id = t.categoryid
+         WHERE t.masterid = t.id
+           AND c.is_trash = 0
+           AND EXISTS (SELECT 1 FROM {local_testmanager_test_links} l WHERE l.masterid = t.id)");
+
+    foreach ($masters as $mastertest) {
+        local_testmanager_sync_master_test($mastertest);
+    }
+}
+
+/**
+ * Recalcula en vivo question_count (y timemodified si cambió) de una lista de tests,
+ * contra el número real de slots que tiene su cuestionario en este momento. El valor
+ * guardado en la tabla se congelaba al crear el test y nunca se actualizaba después.
+ *
+ * @param array $tests registros de local_testmanager_tests (se modifican in-place).
+ * @return void
+ */
+function local_testmanager_recount_tests(array $tests) {
+    global $DB;
+
+    $byquizid = [];
+    foreach ($tests as $t) {
+        if (!empty($t->quizid)) {
+            $byquizid[(int) $t->quizid][] = $t;
+        }
+    }
+    if (empty($byquizid)) {
+        return;
+    }
+
+    list($insql, $params) = $DB->get_in_or_equal(array_keys($byquizid));
+    $counts = $DB->get_records_sql(
+        "SELECT quizid, COUNT(*) AS c FROM {quiz_slots} WHERE quizid $insql GROUP BY quizid", $params);
+
+    $now = time();
+    foreach ($byquizid as $quizid => $testrows) {
+        $livecount = isset($counts[$quizid]) ? (int) $counts[$quizid]->c : 0;
+        foreach ($testrows as $t) {
+            if ((int) $t->question_count !== $livecount) {
+                $DB->update_record('local_testmanager_tests', (object) [
+                    'id'             => $t->id,
+                    'question_count' => $livecount,
+                    'timemodified'   => $now,
+                ]);
+                $t->question_count = $livecount;
+                $t->timemodified = $now;
+            }
         }
     }
 }
@@ -260,7 +582,10 @@ function local_testmanager_search_bank_tests($search, $filtercourse, $filtercate
 
     $sql .= " ORDER BY t.name ASC";
 
-    return $DB->get_records_sql($sql, $params);
+    $tests = $DB->get_records_sql($sql, $params);
+    local_testmanager_recount_tests($tests);
+
+    return $tests;
 }
 
 /**
@@ -416,13 +741,20 @@ function local_testmanager_inject_quizedit_widget($cmid) {
 
     $cmid = (int) $cmid;
     $modalhtml = local_testmanager_render_quizedit_modal_html();
-    $autoopen = optional_param('testmanageropen', 0, PARAM_BOOL) ? 'true' : 'false';
 
     $jscode = <<<'JS'
 require(['jquery', 'core/notification'], function($, Notification) {
+    // Si por cualquier motivo Moodle llega a llamar extend_navigation() más de una vez
+    // en la misma carga de página, este bloque también se inyectaría más de una vez;
+    // sin este guard, cada $(document).on(...) de aquí abajo quedaría registrado dos
+    // veces y un solo clic dispararía el import por duplicado (preguntas repetidas).
+    if (window.testmanagerQuizEditInit) {
+        return;
+    }
+    window.testmanagerQuizEditInit = true;
+
     var CMID = __CMID__;
     var MODALHTML = __MODALHTML__;
-    var AUTOOPEN = __AUTOOPEN__;
 
     if (!$('#modalImportarBancoQuiz').length) {
         $('body').append(MODALHTML);
@@ -436,12 +768,6 @@ require(['jquery', 'core/notification'], function($, Notification) {
     var openTestManagerModal = function() {
         $('#modalImportarBancoQuiz').modal('show');
     };
-
-    // Si venimos de una redirección desde question/edit.php (local_testmanager_maybe_redirect_question_bank),
-    // el modal se abre solo, sin esperar a que el usuario pulse "Del banco de preguntas".
-    if (AUTOOPEN) {
-        openTestManagerModal();
-    }
 
     // El core enlaza su propio manejador de clic (bubbling) sobre data-action="questionbank"
     // para abrir el banco nativo. Se intercepta en fase de captura, antes de que ese
@@ -604,68 +930,31 @@ JS;
 
     $jscode = str_replace('__CMID__', (string) $cmid, $jscode);
     $jscode = str_replace('__MODALHTML__', json_encode($modalhtml), $jscode);
-    $jscode = str_replace('__AUTOOPEN__', $autoopen, $jscode);
 
     $PAGE->requires->js_amd_inline($jscode);
 }
 
 /**
- * Redirige el banco de preguntas nativo (/question/edit.php?cmid=...) a mod/quiz/edit.php
- * con el modal de importación de Test Manager abierto automáticamente.
+ * Callback estándar de Moodle: se llama en todas las páginas. Aquí solo actuamos en
+ * mod/quiz/edit.php, para inyectar el widget de importación de Test Manager.
  *
- * Se redirige siempre que el cmid apunte a un cuestionario (sea o no gestionado por Test
- * Manager): la intención es que el banco nativo nunca se llegue a ver para esta acción,
- * y en su lugar se use siempre el modal de importación de Test Manager, ya integrado en
- * mod/quiz/edit.php mediante local_testmanager_inject_quizedit_widget().
- *
- * No se toca question/edit.php (archivo del core): se intercepta desde el mismo hook
- * extend_navigation que ya usa este plugin, antes de que se pinte cualquier salida.
- *
- * @param int $cmid course_module id recibido en la URL del banco de preguntas.
- * @return void
- */
-function local_testmanager_maybe_redirect_question_bank($cmid) {
-    $cmid = (int) $cmid;
-    if (!$cmid) {
-        return;
-    }
-
-    $cm = get_coursemodule_from_id('quiz', $cmid, 0, false, IGNORE_MISSING);
-    if (!$cm) {
-        return;
-    }
-
-    if (!has_capability('local/testmanager:manage', context_system::instance())) {
-        return;
-    }
-
-    redirect(new moodle_url('/mod/quiz/edit.php', ['cmid' => $cmid, 'testmanageropen' => 1]));
-}
-
-/**
- * Callback estándar de Moodle: se llama en todas las páginas. Aquí actuamos cuando estamos
- * en mod/quiz/edit.php (inyectar el widget de importación) o en question/edit.php (redirigir
- * al plugin si el cmid pertenece a un cuestionario gestionado por Test Manager).
+ * A propósito NO se toca question/edit.php: esa es la pantalla nativa donde se editan y
+ * eliminan preguntas ya existentes de un test, y el cliente necesita seguir teniendo acceso
+ * a ella (ver "Sincronización con el banco de preguntas" en el README).
  *
  * No se toca ningún archivo del core: es el mismo mecanismo (extend_navigation) que ya
- * usa local_questionsearch en este Moodle para actuar en esas mismas páginas.
+ * usa local_questionsearch en este Moodle para cargar JS en mod/quiz/edit.php.
  *
  * @param global_navigation $nav
  */
 function local_testmanager_extend_navigation(global_navigation $nav) {
     global $PAGE;
 
-    $cmid = optional_param('cmid', 0, PARAM_INT);
-
-    if ($PAGE->pagetype === 'question-edit') {
-        local_testmanager_maybe_redirect_question_bank($cmid);
-        return;
-    }
-
     if ($PAGE->pagetype !== 'mod-quiz-edit') {
         return;
     }
 
+    $cmid = optional_param('cmid', 0, PARAM_INT);
     if (!$cmid) {
         return;
     }

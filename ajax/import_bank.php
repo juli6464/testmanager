@@ -10,6 +10,7 @@ require_once(__DIR__ . '/../../../config.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
 require_once($CFG->libdir . '/questionlib.php');
 require_once($CFG->dirroot . '/course/lib.php');
+require_once($CFG->dirroot . '/local/testmanager/lib.php');
 
 require_login();
 $PAGE->set_context(context_system::instance());
@@ -206,15 +207,23 @@ foreach ($selected_ids as $src_testid) {
         [$categoryid]
     );
 
+    // El test copiado hereda el maestro del test origen (o es el origen mismo si nunca
+    // había sido copiado), para poder sincronizar más adelante altas/bajas de preguntas
+    // entre todos los cursos donde termine viviendo este mismo test.
+    $masterid = local_testmanager_get_master_id($srctest);
+
     // Registrar el test en la tabla del plugin
-    $DB->insert_record('local_testmanager_tests', [
+    $newtestid = $DB->insert_record('local_testmanager_tests', [
         'categoryid'     => $categoryid,
         'quizid'         => $quizid,
         'name'           => $newname,
         'question_count' => $new_question_count,
         'sortorder'      => $max_sort + 1,
+        'masterid'       => $masterid,
         'timecreated'    => time()
     ]);
+
+    local_testmanager_link_master_to_cmid($masterid, $cmid);
 
     $imported_count++;
 }

@@ -44,12 +44,47 @@ if (!$dbman->table_exists('local_testmanager_courses')) {
         $dbman->add_field($table_tests, $field_test_sort);
     }
 
+    // masterid/timemodified: permiten saber qué tests son copias de cuáles y recalcular
+    // en vivo el número de preguntas (ver local_testmanager_sync_all_masters()).
+    $field_masterid = new xmldb_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    if (!$dbman->field_exists($table_tests, $field_masterid)) {
+        $dbman->add_field($table_tests, $field_masterid);
+        $DB->execute("UPDATE {local_testmanager_tests} SET masterid = id WHERE masterid = 0");
+    }
+
+    $field_test_modified = new xmldb_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    if (!$dbman->field_exists($table_tests, $field_test_modified)) {
+        $dbman->add_field($table_tests, $field_test_modified);
+    }
+
     $table_categories = new xmldb_table('local_testmanager_categories');
     $field_cat_sort = new xmldb_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
     if (!$dbman->field_exists($table_categories, $field_cat_sort)) {
         $dbman->add_field($table_categories, $field_cat_sort);
     }
 }
+
+if (!$dbman->table_exists('local_testmanager_test_links')) {
+    $linktable = new xmldb_table('local_testmanager_test_links');
+    $linktable->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+    $linktable->add_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $linktable->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $linktable->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $linktable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+    $linktable->add_index('masterid', XMLDB_INDEX_NOTUNIQUE, ['masterid']);
+    $linktable->add_index('masterid-cmid', XMLDB_INDEX_UNIQUE, ['masterid', 'cmid']);
+    $dbman->create_table($linktable);
+}
+
+// Propagar a todos los cursos vinculados los cambios (altas/bajas de preguntas) hechos
+// sobre cada test maestro desde la última vez que se cargó esta página.
+local_testmanager_sync_all_masters();
+
+// Reparar cuestionarios de Test Manager (en cualquier curso, incluida la portada del sitio)
+// cuyo course_module quedó apuntando a una sección que ya no existe (ver
+// local_testmanager_repair_test_cms()); si no se corrige, mod/quiz/view.php muestra
+// "ID de módulo de curso no válido".
+local_testmanager_repair_test_cms();
 
 // Auto-reparación de cuestionarios huérfanos o con referencias erróneas previas
 $orphan_quizzes = $DB->get_records_sql("
@@ -175,6 +210,7 @@ if ($action === 'emptytrash' && $courseid && confirm_sesskey()) {
         redirect($redirecturl, 'Error al vaciar la papelera: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 
+    local_testmanager_cleanup_test_links($testids, $cmids);
     local_testmanager_delete_quiz_modules($cmids);
 
     redirect($redirecturl, 'La papelera ha sido vaciada (' . count($testids) . ' tests eliminados definitivamente).',
@@ -206,6 +242,7 @@ if ($action === 'purgetest' && $testid && confirm_sesskey()) {
         redirect($redirecturl, 'Error al eliminar el test: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 
+    local_testmanager_cleanup_test_links([$test->id], $cmids);
     local_testmanager_delete_quiz_modules($cmids);
 
     redirect($redirecturl, 'Test eliminado definitivamente.', null, \core\output\notification::NOTIFY_SUCCESS);
@@ -264,6 +301,7 @@ if ($action === 'deletecourse' && $courseid && confirm_sesskey()) {
         redirect($indexurl, 'Error al eliminar el curso: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 
+    local_testmanager_cleanup_test_links($testids, $cmids);
     local_testmanager_delete_quiz_modules($cmids);
 
     redirect($indexurl, 'Curso eliminado correctamente.', null, \core\output\notification::NOTIFY_SUCCESS);
@@ -291,6 +329,7 @@ if ($action === 'deletecategory' && $categoryid && confirm_sesskey()) {
         redirect($redirecturl, 'Error al eliminar la categoría: ' . $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
     }
 
+    local_testmanager_cleanup_test_links($testids, $cmids);
     local_testmanager_delete_quiz_modules($cmids);
 
     redirect($redirecturl, 'Categoría "' . format_string($cat->name) . '" y sus ' . count($testids) .
@@ -587,13 +626,15 @@ if ($tdata = $testform->get_data()) {
         $DB->set_field('quiz', 'grade', $finalgrade, ['id' => $quiz->id]);
         $gradecalculator->update_quiz_maximum_grade($finalgrade);
 
-        $DB->insert_record('local_testmanager_tests', [
+        $newtestid = $DB->insert_record('local_testmanager_tests', [
             'categoryid' => $categoryid,
             'quizid' => $quiz->id,
             'name' => $testname,
             'question_count' => $question_count,
             'timecreated' => time()
         ]);
+        // Un test recién creado es su propio maestro: aún no tiene copias en otros cursos.
+        $DB->set_field('local_testmanager_tests', 'masterid', $newtestid, ['id' => $newtestid]);
     }
 
     $redirecturl = new moodle_url('/local/testmanager/index.php', ['filtercourse' => $tmcourseid]);
@@ -698,7 +739,8 @@ echo $OUTPUT->header();
             }
 
             $course_tests = $DB->get_records_sql($testsql, $testparams);
-            
+            local_testmanager_recount_tests($course_tests);
+
             if (!empty($search) && empty($course_tests)) {
                 continue;
             }
@@ -731,6 +773,7 @@ echo $OUTPUT->header();
 
             // --- Papelera del curso ---
             $trashedtests = $DB->get_records('local_testmanager_tests', ['categoryid' => $trashcat->id], 'timecreated DESC');
+            local_testmanager_recount_tests($trashedtests);
             $trashedcount = count($trashedtests);
             $trashedquestions = 0;
             foreach ($trashedtests as $tt) {
@@ -793,6 +836,7 @@ echo $OUTPUT->header();
                 $cat_test_sql .= " ORDER BY sortorder ASC, id ASC";
 
                 $tests = $DB->get_records_sql($cat_test_sql, $cat_test_params);
+                local_testmanager_recount_tests($tests);
 
                 if (!empty($search) && empty($tests)) {
                     continue;
@@ -802,9 +846,12 @@ echo $OUTPUT->header();
 
                 // Para el aviso de borrado hacen falta los totales reales de la categoría,
                 // no los que haya dejado visibles el filtro de búsqueda.
-                $cat_all_tests = empty($search)
-                    ? $tests
-                    : $DB->get_records('local_testmanager_tests', ['categoryid' => $cat->id]);
+                if (empty($search)) {
+                    $cat_all_tests = $tests;
+                } else {
+                    $cat_all_tests = $DB->get_records('local_testmanager_tests', ['categoryid' => $cat->id]);
+                    local_testmanager_recount_tests($cat_all_tests);
+                }
                 $cat_total_tests = count($cat_all_tests);
                 $cat_questions_count = 0;
                 foreach ($cat_all_tests as $t_item) {
@@ -889,7 +936,8 @@ echo $OUTPUT->header();
                         }
 
                         echo '<span class="badge badge-pill badge-light border  px-2 mr-2" style="font-color: #5F6B76; background-color: #EEF1F4;"><i class="fa fa-question-circle mr-1" style="color:#0099B2;"></i> ' . $t->question_count . ' preguntas</span>';
-                        echo '<small class="text-muted" style="font-size: 75%;">Actualizado: ' . date('Y-m-d', $t->timecreated) . '</small>';
+                        $lastactivity = !empty($t->timemodified) ? $t->timemodified : $t->timecreated;
+                        echo '<small class="text-muted" style="font-size: 75%;">Actualizado: ' . date('Y-m-d', $lastactivity) . '</small>';
                         echo '</div>';
                         echo '</div>';
 

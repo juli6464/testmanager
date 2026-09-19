@@ -42,12 +42,28 @@ function xmldb_local_testmanager_install() {
     $table3->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
     $table3->add_field('question_count', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
     $table3->add_field('sortorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    $table3->add_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+    $table3->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
     $table3->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $table3->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
     $table3->add_key('fk_category', XMLDB_KEY_FOREIGN, ['categoryid'], 'local_testmanager_categories', ['id']);
 
     if (!$dbman->table_exists($table3)) {
         $dbman->create_table($table3);
+    }
+
+    // 4. Tabla de vínculos test maestro -> cuestionarios donde se importaron sus preguntas.
+    $table4 = new xmldb_table('local_testmanager_test_links');
+    $table4->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+    $table4->add_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table4->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table4->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table4->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+    $table4->add_index('masterid', XMLDB_INDEX_NOTUNIQUE, ['masterid']);
+    $table4->add_index('masterid-cmid', XMLDB_INDEX_UNIQUE, ['masterid', 'cmid']);
+
+    if (!$dbman->table_exists($table4)) {
+        $dbman->create_table($table4);
     }
 
     return true;

@@ -13,6 +13,7 @@ define('AJAX_SCRIPT', true);
 require_once(__DIR__ . '/../../../config.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
 require_once($CFG->libdir . '/questionlib.php');
+require_once($CFG->dirroot . '/local/testmanager/lib.php');
 
 require_login();
 $PAGE->set_context(context_system::instance());
@@ -87,6 +88,12 @@ try {
         $src_slots = $DB->get_records('quiz_slots', ['quizid' => $srctest->quizid], 'slot ASC');
         $addedhere = 0;
 
+        // Preguntas que YA están en el cuestionario destino, para no duplicarlas si el test
+        // se vuelve a importar aquí (por ejemplo, por un doble clic o un reintento).
+        $existingentryids = array_map(function($r) {
+            return (int) $r->questionbankentryid;
+        }, array_values(local_testmanager_get_quiz_entry_ids($quizid)));
+
         foreach ($src_slots as $src_slot) {
             // La referencia trae el questionbankentryid: es lo que mantiene la pregunta
             // vinculada al banco (con version = NULL se sigue la última versión siempre).
@@ -99,6 +106,11 @@ try {
             if (!$src_ref) {
                 continue;
             }
+
+            if (in_array((int) $src_ref->questionbankentryid, $existingentryids, true)) {
+                continue;
+            }
+            $existingentryids[] = (int) $src_ref->questionbankentryid;
 
             $maxslot++;
 
@@ -122,6 +134,9 @@ try {
         }
 
         if ($addedhere > 0) {
+            // Registrar que las preguntas del test maestro ahora también viven en este
+            // cuestionario, para poder sincronizar altas/bajas más adelante.
+            local_testmanager_link_master_to_cmid(local_testmanager_get_master_id($srctest), $cmid);
             $imported_count++;
         } else {
             $errors[] = "Test '{$srctest->name}' no tiene preguntas para importar.";

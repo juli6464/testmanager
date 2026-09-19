@@ -72,5 +72,43 @@ function xmldb_local_testmanager_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026091502, 'local', 'testmanager');
     }
 
+    if ($oldversion < 2026091900) {
+        // masterid: id del test "maestro" del que este es copia (permite saber qué otros
+        // cuestionarios deben sincronizarse cuando cambian las preguntas del maestro).
+        // timemodified: última vez que cambió el número de preguntas (para no mostrar
+        // siempre la fecha de creación como si fuera la de "actualizado").
+        $table = new xmldb_table('local_testmanager_tests');
+
+        $fieldmaster = new xmldb_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        if (!$dbman->field_exists($table, $fieldmaster)) {
+            $dbman->add_field($table, $fieldmaster);
+        }
+
+        $fieldmodified = new xmldb_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        if (!$dbman->field_exists($table, $fieldmodified)) {
+            $dbman->add_field($table, $fieldmodified);
+        }
+
+        // Tabla de vínculos test maestro -> cuestionarios donde se importaron sus preguntas.
+        $linktable = new xmldb_table('local_testmanager_test_links');
+        $linktable->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $linktable->add_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $linktable->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $linktable->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $linktable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $linktable->add_index('masterid', XMLDB_INDEX_NOTUNIQUE, ['masterid']);
+        $linktable->add_index('masterid-cmid', XMLDB_INDEX_UNIQUE, ['masterid', 'cmid']);
+
+        if (!$dbman->table_exists($linktable)) {
+            $dbman->create_table($linktable);
+        }
+
+        // Backfill: todo test existente antes de esta versión se trata como su propio
+        // maestro (no se puede reconstruir el historial de copias hecho antes de esto).
+        $DB->execute("UPDATE {local_testmanager_tests} SET masterid = id WHERE masterid = 0");
+
+        upgrade_plugin_savepoint(true, 2026091900, 'local', 'testmanager');
+    }
+
     return true;
 }
