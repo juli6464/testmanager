@@ -50,9 +50,9 @@ El "test maestro" es la copia original que ves en `local/testmanager/index.php` 
 | Acción | ¿Dónde se hace? | ¿Se refleja en los demás? |
 |---|---|---|
 | Editar el **contenido** de una pregunta (texto, respuestas) | Desde el banco nativo (`question/edit.php`), **en cualquier lugar** donde esa pregunta aparezca | **Sí, siempre y en ambos sentidos.** No es cosa del plugin: es la misma pregunta de Moodle (`questionbankentryid`) en todos lados, así que basta con editarla una vez, sin importar desde qué curso se edite. |
-| **Agregar** una pregunta al test | Desde el cuestionario del **test maestro** | Sí: en la próxima carga de `index.php`, se agrega también en todos los cursos donde se haya importado ese test. |
-| **Eliminar** una pregunta del test | Desde el cuestionario del **test maestro** | Sí: se elimina también de todos los cursos donde se haya importado. |
-| **Agregar o eliminar** una pregunta directamente en un **curso donde se importó** (no en el maestro) | Desde ese curso puntual | **No se traslada al maestro ni a los demás cursos.** Y ojo: en la próxima sincronización, ese cuestionario se "corrige" para volver a coincidir con el maestro — es decir, la pregunta que agregaste ahí se puede volver a quitar, o la que borraste ahí puede reaparecer, porque el plugin asume que el maestro es la única fuente de verdad. |
+| **Agregar** una pregunta al test | Desde el cuestionario del **test maestro** | Sí, al instante: se agrega también en todos los cursos donde se haya importado ese test. |
+| **Eliminar** una pregunta del test | Desde el cuestionario del **test maestro** | Sí, al instante: se elimina también de todos los cursos donde se haya importado. |
+| **Agregar o eliminar** una pregunta directamente en un **curso donde se importó** (no en el maestro) | Desde ese curso puntual | **No se traslada al maestro ni a los demás cursos**, pero tampoco se deshace: la sincronización solo toca las preguntas que el maestro añadió o quitó, así que las preguntas propias del curso (o de otros tests importados en el mismo cuestionario) se respetan. |
 
 **En la práctica, esto significa:**
 - Si el cliente quiere que un cambio (agregar/quitar pregunta) llegue a **todos** los cursos, debe hacerlo **desde el cuestionario del test original** (el que aparece como su propio maestro en `index.php`), no desde una de las copias ya importadas.

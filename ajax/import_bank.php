@@ -50,7 +50,9 @@ if ($moodlecourseid <= 1 || !$DB->record_exists('course', ['id' => $moodlecourse
     $coursedata = new stdClass();
     $coursedata->fullname  = $tmcourse ? $tmcourse->name : ('Gestor de Tests - Curso ' . $destcat->courseid);
     $coursedata->shortname = 'TESTMGR_' . $destcat->courseid . '_' . time();
-    $coursedata->category  = 1;
+    // No asumimos que exista la categoría id=1 (en producción puede haberse borrado):
+    // get_default() devuelve la primera categoría de nivel superior, o la crea si no hay.
+    $coursedata->category  = core_course_category::get_default()->id;
     $coursedata->format    = 'topics';
     $newcourse = create_course($coursedata);
     $moodlecourseid = $newcourse->id;

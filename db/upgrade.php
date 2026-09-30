@@ -110,5 +110,17 @@ function xmldb_local_testmanager_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026091900, 'local', 'testmanager');
     }
 
+    if ($oldversion < 2026093000) {
+        // entryids: preguntas del maestro en la última sincronización, para quitar de los
+        // cuestionarios vinculados solo las que el maestro eliminó (y no las ajenas al test).
+        $table = new xmldb_table('local_testmanager_test_links');
+        $field = new xmldb_field('entryids', XMLDB_TYPE_TEXT, null, null, null, null, null, 'cmid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026093000, 'local', 'testmanager');
+    }
+
     return true;
 }

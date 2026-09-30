@@ -57,6 +57,7 @@ function xmldb_local_testmanager_install() {
     $table4->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
     $table4->add_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $table4->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table4->add_field('entryids', XMLDB_TYPE_TEXT, null, null, null, null, null);
     $table4->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $table4->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
     $table4->add_index('masterid', XMLDB_INDEX_NOTUNIQUE, ['masterid']);

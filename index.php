@@ -69,11 +69,18 @@ if (!$dbman->table_exists('local_testmanager_test_links')) {
     $linktable->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
     $linktable->add_field('masterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $linktable->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $linktable->add_field('entryids', XMLDB_TYPE_TEXT, null, null, null, null, null);
     $linktable->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
     $linktable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
     $linktable->add_index('masterid', XMLDB_INDEX_NOTUNIQUE, ['masterid']);
     $linktable->add_index('masterid-cmid', XMLDB_INDEX_UNIQUE, ['masterid', 'cmid']);
     $dbman->create_table($linktable);
+} else {
+    $table_links = new xmldb_table('local_testmanager_test_links');
+    $field_entryids = new xmldb_field('entryids', XMLDB_TYPE_TEXT, null, null, null, null, null, 'cmid');
+    if (!$dbman->field_exists($table_links, $field_entryids)) {
+        $dbman->add_field($table_links, $field_entryids);
+    }
 }
 
 // Propagar a todos los cursos vinculados los cambios (altas/bajas de preguntas) hechos
@@ -1483,15 +1490,18 @@ require(['jquery'], function($) {
             } else {
                 require(['core/notification'], function(Notification) {
                     Notification.addNotification({
-                        message: (response && response.message) ? response.message : 'No se pudo completar la importación.',
+                        message: (response && (response.message || response.error)) ?
+                            (response.message || response.error) : 'No se pudo completar la importación.',
                         type: 'error'
                     });
                 });
                 button.prop('disabled', false).text('Importar');
             }
-        }).fail(function() {
+        }).fail(function(xhr) {
+            // Si el servidor devolvió HTML/aviso PHP en lugar de JSON, lo mostramos para diagnosticar.
+            var detail = xhr && xhr.responseText ? $('<div>').text(xhr.responseText.substring(0, 500)).html() : '';
             require(['core/notification'], function(Notification) {
-                Notification.addNotification({message: 'Error de comunicación al importar.', type: 'error'});
+                Notification.addNotification({message: 'Error de comunicación al importar. ' + detail, type: 'error'});
             });
             button.prop('disabled', false).text('Importar');
         });

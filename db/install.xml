@@ -52,6 +52,7 @@
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="masterid" TYPE="int" LENGTH="10" NOTNULL="true" COMMENT="local_testmanager_tests.id del test maestro"/>
         <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" COMMENT="course_module id del cuestionario destino donde se importaron las preguntas"/>
+        <FIELD NAME="entryids" TYPE="text" NOTNULL="false" COMMENT="JSON con los questionbankentryid del maestro en la última sincronización"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true"/>
       </FIELDS>
       <KEYS>

@@ -182,13 +182,40 @@ function local_testmanager_link_master_to_cmid($masterid, $cmid) {
         return;
     }
 
-    if (!$DB->record_exists('local_testmanager_test_links', ['masterid' => $masterid, 'cmid' => $cmid])) {
+    // Instantánea de las preguntas que el maestro tiene AHORA: son las únicas que la
+    // sincronización podrá quitar después de este cuestionario (ver local_testmanager_sync_master_test()).
+    $entryids = local_testmanager_get_master_entry_ids($masterid);
+    $snapshot = $entryids === null ? null : json_encode($entryids);
+
+    $link = $DB->get_record('local_testmanager_test_links', ['masterid' => $masterid, 'cmid' => $cmid]);
+    if ($link) {
+        $DB->set_field('local_testmanager_test_links', 'entryids', $snapshot, ['id' => $link->id]);
+    } else {
         $DB->insert_record('local_testmanager_test_links', [
             'masterid'    => $masterid,
             'cmid'        => $cmid,
+            'entryids'    => $snapshot,
             'timecreated' => time(),
         ]);
     }
+}
+
+/**
+ * questionbankentryid (enteros, en orden) del cuestionario del test maestro $masterid.
+ *
+ * @param int $masterid id de local_testmanager_tests.
+ * @return int[]|null null si el maestro no tiene cuestionario.
+ */
+function local_testmanager_get_master_entry_ids($masterid) {
+    global $DB;
+
+    $quizid = $DB->get_field('local_testmanager_tests', 'quizid', ['id' => $masterid]);
+    if (empty($quizid)) {
+        return null;
+    }
+    return array_map(function($r) {
+        return (int) $r->questionbankentryid;
+    }, array_values(local_testmanager_get_quiz_entry_ids($quizid)));
 }
 
 /**
@@ -271,16 +298,36 @@ function local_testmanager_sync_master_test($mastertest) {
             continue;
         }
 
-        $targetslots = local_testmanager_get_quiz_entry_ids($targetquizid);
-        $targetslotbyentry = [];
-        foreach ($targetslots as $ts) {
-            $targetslotbyentry[(int) $ts->questionbankentryid] = $ts->slot;
+        $targetentryids = [];
+        foreach (local_testmanager_get_quiz_entry_ids($targetquizid) as $ts) {
+            $targetentryids[] = (int) $ts->questionbankentryid;
         }
 
-        $toremove = array_diff(array_keys($targetslotbyentry), $masterentryids);
-        $toadd = array_diff($masterentryids, array_keys($targetslotbyentry));
+        // Preguntas del maestro en la última sincronización. El cuestionario destino puede
+        // ser uno ya existente de un curso real (ajax/import_bank_into_quiz.php) con preguntas
+        // propias o de otros tests: solo se quitan las que salieron del maestro desde entonces,
+        // nunca "todo lo que no esté en el maestro".
+        $snapshot = $link->entryids === null ? null : json_decode($link->entryids, true);
+        if (!is_array($snapshot)) {
+            // Vínculo creado antes de guardar instantáneas: se toma como punto de partida lo
+            // que hoy comparten ambos cuestionarios, sin quitar nada en esta pasada.
+            $snapshot = array_values(array_intersect($masterentryids, $targetentryids));
+        }
+        $snapshot = array_map('intval', $snapshot);
+
+        $toremove = array_intersect(array_diff($snapshot, $masterentryids), $targetentryids);
+        $toadd = array_diff($masterentryids, $snapshot, $targetentryids);
 
         if (empty($toremove) && empty($toadd)) {
+            local_testmanager_save_link_snapshot($link, $masterentryids);
+            continue;
+        }
+
+        if (quiz_has_attempts($targetquizid)) {
+            // Moodle no permite cambiar las preguntas de un cuestionario con intentos. No se
+            // actualiza la instantánea para reintentarlo cuando se borren los intentos.
+            debugging('local_testmanager: cmid ' . $link->cmid . ' tiene intentos; no se sincroniza ' .
+                'con el test maestro ' . $mastertest->id . '.', DEBUG_DEVELOPER);
             continue;
         }
 
@@ -319,12 +366,30 @@ function local_testmanager_sync_master_test($mastertest) {
 
             $gradecalculator = \mod_quiz\quiz_settings::create($targetquizid)->get_grade_calculator();
             $gradecalculator->recompute_quiz_sumgrades();
+
+            local_testmanager_save_link_snapshot($link, $masterentryids);
         } catch (\Throwable $e) {
             // No se detiene la sincronización de los demás cursos por un fallo puntual
             // (por ejemplo, un cuestionario con intentos ya realizados no se puede editar).
             debugging('local_testmanager: no se pudo sincronizar cmid ' . $link->cmid .
                 ' con el test maestro ' . $mastertest->id . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
+    }
+}
+
+/**
+ * Guarda en el vínculo las preguntas que tiene el maestro tras sincronizar.
+ *
+ * @param stdClass $link registro de local_testmanager_test_links.
+ * @param int[] $entryids questionbankentryid actuales del maestro.
+ * @return void
+ */
+function local_testmanager_save_link_snapshot($link, array $entryids) {
+    global $DB;
+
+    $json = json_encode(array_values($entryids));
+    if ($link->entryids !== $json) {
+        $DB->set_field('local_testmanager_test_links', 'entryids', $json, ['id' => $link->id]);
     }
 }
 
